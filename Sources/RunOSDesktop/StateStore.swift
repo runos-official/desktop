@@ -10,6 +10,8 @@ final class StateStore: ObservableObject {
     @Published var operationMessage: String?
     @Published var cliAvailable = true
     @Published var cliOutdated = false
+    @Published var cliDevelopment = false
+    @Published var cliVersion: String?
 
     var activeAccountId: String? { cliStatus?.accountId }
     var isBusy: Bool { operationMessage != nil }

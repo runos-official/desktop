@@ -21,13 +21,14 @@ struct RunOSDesktopApp: App {
             store.cliAvailable = false
             store.errorMessage = error.localizedDescription
         }
-        _coordinator = StateObject(wrappedValue: RefreshCoordinator(store: store, runner: runner))
+        let coordinator = RefreshCoordinator(store: store, runner: runner)
+        _coordinator = StateObject(wrappedValue: coordinator)
+        coordinator.start()
     }
 
     var body: some Scene {
         MenuBarExtra {
             MenuContentView(coordinator: coordinator, loginItem: loginItem)
-                .onAppear { coordinator.start() }
         } label: {
             ZStack(alignment: .bottomTrailing) {
                 Image("MenuBarIcon")

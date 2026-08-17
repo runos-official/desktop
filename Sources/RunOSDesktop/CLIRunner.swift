@@ -32,17 +32,38 @@ actor CLIRunner {
 
     func run(_ arguments: [String]) throws -> CLIResult {
         let process = Process()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
+        let fileManager = FileManager.default
+        let executionDirectory = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try fileManager.createDirectory(
+            at: executionDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? fileManager.removeItem(at: executionDirectory) }
+        let outputURL = executionDirectory.appending(path: "stdout")
+        let errorURL = executionDirectory.appending(path: "stderr")
+        guard fileManager.createFile(atPath: outputURL.path, contents: nil, attributes: [.posixPermissions: 0o600]),
+              fileManager.createFile(atPath: errorURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        else {
+            throw CLIExecutionError(exitCode: -1, message: "RunOS Desktop cannot create CLI output files.")
+        }
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        let errorHandle = try FileHandle(forWritingTo: errorURL)
+        defer {
+            try? outputHandle.close()
+            try? errorHandle.close()
+        }
         process.executableURL = executableURL
         process.arguments = arguments
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
+        process.standardOutput = outputHandle
+        process.standardError = errorHandle
         try process.run()
         process.waitUntilExit()
+        try outputHandle.close()
+        try errorHandle.close()
 
-        let stdout = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = try Data(contentsOf: outputURL)
+        let stderrData = try Data(contentsOf: errorURL)
         let stderr = String(decoding: stderrData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let result = CLIResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
         if result.exitCode != 0 {

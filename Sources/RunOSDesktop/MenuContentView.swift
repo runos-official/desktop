@@ -4,7 +4,6 @@ import SwiftUI
 struct MenuContentView: View {
     @ObservedObject var coordinator: RefreshCoordinator
     @ObservedObject var loginItem: LoginItemController
-    @State private var showsAbout = false
 
     private var store: StateStore { coordinator.store }
 
@@ -16,23 +15,21 @@ struct MenuContentView: View {
             accountPicker
             actionSection
             Divider()
-            Button("About RunOS Desktop") { showsAbout = true }
+            Button("About RunOS Desktop") { AboutPresenter.live.show() }
             Button("Quit RunOS Desktop") { NSApplication.shared.terminate(nil) }
         }
         .disabled(store.isBusy)
         .onAppear { coordinator.setMenuOpen(true) }
         .onDisappear { coordinator.setMenuOpen(false) }
-        .alert("RunOS Desktop", isPresented: $showsAbout) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("RunOS Desktop is an unsigned menu-bar facade for the RunOS CLI.\n\nElastic License 2.0")
-        }
     }
 
     @ViewBuilder
     private var accountSection: some View {
         Section("CLI Account") {
             Text(store.activeAccountId ?? "Not signed in")
+            if store.cliDevelopment, let version = store.cliVersion {
+                Text("Development CLI: \(version)")
+            }
             if store.cliStatus?.vpnAccountMismatch == true {
                 Label("VPN account: \(store.cliStatus?.vpnAccountId ?? "unknown")", systemImage: "exclamationmark.triangle")
                 Text("Run 'runos vpn up' to synchronize the VPN account.")
@@ -122,5 +119,83 @@ struct MenuContentView: View {
                 "\(peer) is peered with \(cluster.cid). Connect \(peer) for private routes and DNS."
             }
         }
+    }
+}
+
+@MainActor
+struct AboutPresenter {
+    private let showPanel: () -> Void
+
+    init(showPanel: @escaping () -> Void) {
+        self.showPanel = showPanel
+    }
+
+    func show() {
+        showPanel()
+    }
+
+    static let live = AboutPresenter {
+        DispatchQueue.main.async {
+            AboutWindowController.shared.show()
+        }
+    }
+}
+
+@MainActor
+private final class AboutWindowController {
+    static let shared = AboutWindowController()
+    private var window: NSPanel?
+
+    func show() {
+        let panel = window ?? makePanel()
+        window = panel
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func close() {
+        window?.close()
+    }
+
+    private func makePanel() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "About RunOS Desktop"
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.contentView = NSHostingView(rootView: AboutContentView())
+        return panel
+    }
+}
+
+private struct AboutContentView: View {
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image("MenuBarIcon")
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 54, height: 54)
+            Text("RunOS Desktop")
+                .font(.title2.bold())
+            Text("Version \(version)")
+            Text("Unsigned menu-bar facade for the RunOS CLI.")
+                .foregroundStyle(.secondary)
+            Text("Elastic License 2.0")
+                .foregroundStyle(.secondary)
+            Button("Close") {
+                AboutWindowController.shared.close()
+            }
+            .keyboardShortcut(.cancelAction)
+        }
+        .frame(width: 360, height: 260)
     }
 }

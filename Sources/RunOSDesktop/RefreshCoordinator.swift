@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 @MainActor
@@ -8,14 +9,21 @@ final class RefreshCoordinator: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var menuIsOpen = false
     private var actionRunning = false
+    private var hasStarted = false
+    private var storeObservation: AnyCancellable?
 
     init(store: StateStore, runner: CLIRunner?) {
         self.store = store
         self.runner = runner
+        storeObservation = store.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
         store.cliAvailable = runner != nil
     }
 
     func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
         schedulePoll()
         Task { await refresh() }
     }
@@ -33,9 +41,16 @@ final class RefreshCoordinator: ObservableObject {
         do {
             let version = try await runner.run(["--version"])
             let currentVersion = String(decoding: version.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            store.cliOutdated = VersionComparator.isOlder(currentVersion, than: minimumCLIVersion)
-            guard !store.cliOutdated else {
+            let compatibility = VersionComparator.compatibility(currentVersion, minimum: minimumCLIVersion)
+            store.cliVersion = currentVersion
+            store.cliDevelopment = compatibility == .development
+            store.cliOutdated = compatibility == .outdated
+            if compatibility == .outdated {
                 store.errorMessage = "RunOS Desktop requires CLI \(minimumCLIVersion) or newer. Run 'runos update'."
+                return
+            }
+            if compatibility == .invalid {
+                store.errorMessage = "RunOS Desktop cannot identify CLI version '\(currentVersion)'. Run 'runos update'."
                 return
             }
             async let statusResult = runner.run(["status", "--json"])
@@ -110,21 +125,58 @@ final class RefreshCoordinator: ObservableObject {
     }
 }
 
+enum CLIVersionCompatibility: Equatable {
+    case supported
+    case outdated
+    case development
+    case invalid
+}
+
 enum VersionComparator {
-    static func isOlder(_ value: String, than minimum: String) -> Bool {
-        let lhs = components(value)
-        let rhs = components(minimum)
-        for index in 0..<max(lhs.count, rhs.count) {
-            let left = index < lhs.count ? lhs[index] : 0
-            let right = index < rhs.count ? rhs[index] : 0
-            if left != right { return left < right }
+    static func compatibility(_ value: String, minimum: String) -> CLIVersionCompatibility {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized == "dev" || normalized.hasPrefix("dev-") {
+            return .development
         }
-        return false
+        guard releaseComponents(normalized) != nil, releaseComponents(minimum) != nil else {
+            return .invalid
+        }
+        return isOlder(normalized, than: minimum) ? .outdated : .supported
     }
 
-    private static func components(_ value: String) -> [Int] {
-        value.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
-            .split(separator: "-").first?
-            .split(separator: ".").map { Int($0) ?? 0 } ?? []
+    static func isOlder(_ value: String, than minimum: String) -> Bool {
+        guard let lhs = releaseComponents(value), let rhs = releaseComponents(minimum) else {
+            return false
+        }
+        for index in 0..<3 {
+            let left = lhs.numbers[index]
+            let right = rhs.numbers[index]
+            if left != right { return left < right }
+        }
+        if lhs.prerelease == rhs.prerelease { return false }
+        return lhs.prerelease != nil && rhs.prerelease == nil
+    }
+
+    private static func releaseComponents(_ value: String) -> (numbers: [Int], prerelease: String?)? {
+        var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.hasPrefix("v") {
+            normalized.removeFirst()
+        }
+        let versionParts = normalized.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        let numberParts = versionParts[0].split(separator: ".", omittingEmptySubsequences: false)
+        guard numberParts.count == 3 else { return nil }
+        let numbers = numberParts.compactMap { part -> Int? in
+            guard !part.isEmpty, part.allSatisfy(\.isNumber) else { return nil }
+            return Int(part)
+        }
+        guard numbers.count == 3 else { return nil }
+        guard versionParts.count == 2 else { return (numbers, nil) }
+        let prerelease = String(versionParts[1])
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
+        guard !prerelease.isEmpty,
+              prerelease.unicodeScalars.allSatisfy(allowed.contains),
+              !prerelease.split(separator: ".", omittingEmptySubsequences: false).contains(where: \.isEmpty)
+        else { return nil }
+        return (numbers, prerelease)
     }
 }
