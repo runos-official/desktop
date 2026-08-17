@@ -11,8 +11,7 @@ struct MenuContentView: View {
         Group {
             Group {
                 statusMessages
-                vpnControl
-                connectMenu
+                vpnMenu
                 accountMenu
                 Divider()
                 actionItems
@@ -49,21 +48,9 @@ struct MenuContentView: View {
     }
 
     @ViewBuilder
-    private var vpnControl: some View {
-        Group {
-            Button(store.vpnStatus?.running == true ? "Disconnect VPN" : "Connect VPN") {
-                coordinator.setVPN(enabled: store.vpnStatus?.running != true)
-            }
-            if store.vpnStatus?.session.loginRequired == true {
-                Text("Browser authentication is required.")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var connectMenu: some View {
-        Menu("Connect") {
-            if let vpn = store.vpnStatus {
+    private var vpnMenu: some View {
+        Menu("VPN") {
+            if let vpn = store.vpnStatus, vpn.running {
                 if vpn.connectableClusters.isEmpty {
                     Text("No VPN clusters available")
                 } else {
@@ -90,8 +77,14 @@ struct MenuContentView: View {
                         Text(hint)
                     }
                 }
+                Divider()
+                Button("Disconnect") {
+                    coordinator.setVPN(enabled: false)
+                }
             } else {
-                Text("VPN status is unavailable")
+                Button("Connect") {
+                    coordinator.setVPN(enabled: true)
+                }
             }
         }
     }
