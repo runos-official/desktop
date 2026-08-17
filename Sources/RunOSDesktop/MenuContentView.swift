@@ -10,11 +10,12 @@ struct MenuContentView: View {
     var body: some View {
         Group {
             Group {
-                accountSection
-                vpnSection
+                statusMessages
+                vpnControl
                 connectMenu
-                accountPicker
-                actionSection
+                accountMenu
+                Divider()
+                actionItems
             }
             .disabled(store.isBusy)
             if store.canCancelOperation {
@@ -31,19 +32,16 @@ struct MenuContentView: View {
     }
 
     @ViewBuilder
-    private var accountSection: some View {
-        Section("CLI Account") {
-            Text(store.activeAccountId ?? "Not signed in")
-            if store.cliDevelopment, let version = store.cliVersion {
-                Text("Development CLI: \(version)")
-            }
-            if store.cliStatus?.vpnAccountMismatch == true {
-                Label("VPN account: \(store.cliStatus?.vpnAccountId ?? "unknown")", systemImage: "exclamationmark.triangle")
-                Text("Run 'runos vpn up' to synchronize the VPN account.")
-            }
-        }
+    private var statusMessages: some View {
         if let operation = store.operationMessage {
             Label(operation, systemImage: "clock")
+        }
+        if store.cliStatus?.vpnAccountMismatch == true {
+            Label(
+                "Account mismatch: CLI \(store.activeAccountId ?? "unknown"), VPN \(store.cliStatus?.vpnAccountId ?? "unknown")",
+                systemImage: "exclamationmark.triangle"
+            )
+            Text("Run 'runos vpn up' to synchronize the VPN account.")
         }
         if let error = store.errorMessage {
             Label(error, systemImage: "exclamationmark.triangle")
@@ -51,9 +49,9 @@ struct MenuContentView: View {
     }
 
     @ViewBuilder
-    private var vpnSection: some View {
-        Section("VPN") {
-            Toggle("Connected", isOn: Binding(
+    private var vpnControl: some View {
+        Group {
+            Toggle("VPN", isOn: Binding(
                 get: { store.vpnStatus?.running == true },
                 set: { enabled in
                     coordinator.perform(DesktopCommands.setVPN(enabled: enabled), message: enabled ? "Connecting VPN…" : "Disconnecting VPN…")
@@ -69,19 +67,23 @@ struct MenuContentView: View {
     private var connectMenu: some View {
         Menu("Connect") {
             if let vpn = store.vpnStatus {
-                ForEach(vpn.connectableClusters) { cluster in
-                    Toggle(isOn: Binding(
-                        get: { cluster.connected },
-                        set: { _ in
-                            coordinator.perform(
-                                DesktopCommands.setCluster(cluster.cid, connected: cluster.connected),
-                                message: cluster.connected
-                                    ? "Disconnecting \(cluster.name)…"
-                                    : "Connecting \(cluster.name)…"
-                            )
+                if vpn.connectableClusters.isEmpty {
+                    Text("No VPN clusters available")
+                } else {
+                    ForEach(vpn.connectableClusters) { cluster in
+                        Toggle(isOn: Binding(
+                            get: { cluster.connected },
+                            set: { _ in
+                                coordinator.perform(
+                                    DesktopCommands.setCluster(cluster.cid, connected: cluster.connected),
+                                    message: cluster.connected
+                                        ? "Disconnecting \(cluster.name)…"
+                                        : "Connecting \(cluster.name)…"
+                                )
+                            }
+                        )) {
+                            Text(cluster.name.isEmpty ? cluster.cid : cluster.name)
                         }
-                    )) {
-                        Text(cluster.name.isEmpty ? cluster.cid : cluster.name)
                     }
                 }
                 let hints = peeringHints(vpn.connectableClusters)
@@ -91,14 +93,15 @@ struct MenuContentView: View {
                         Text(hint)
                     }
                 }
+            } else {
+                Text("VPN status is unavailable")
             }
         }
-        .disabled(store.vpnStatus?.connectableClusters.isEmpty != false)
     }
 
     @ViewBuilder
-    private var accountPicker: some View {
-        Section("Accounts") {
+    private var accountMenu: some View {
+        Menu("Account") {
             ForEach(store.accounts) { account in
                 Button {
                     coordinator.perform(
@@ -109,6 +112,9 @@ struct MenuContentView: View {
                 } label: {
                     Label(account.accountId, systemImage: account.active ? "checkmark" : "person.crop.circle")
                 }
+            }
+            if !store.accounts.isEmpty {
+                Divider()
             }
             Button("Add Account…") {
                 coordinator.perform(
@@ -121,8 +127,8 @@ struct MenuContentView: View {
     }
 
     @ViewBuilder
-    private var actionSection: some View {
-        Section {
+    private var actionItems: some View {
+        Group {
             Button("Update RunOS") { coordinator.updateRunOS() }
             Toggle("Launch at Login", isOn: Binding(
                 get: { loginItem.isEnabled },
