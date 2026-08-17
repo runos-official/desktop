@@ -7,6 +7,7 @@ final class RefreshCoordinator: ObservableObject {
     let store: StateStore
     private let runner: CLIRunner?
     private var pollTask: Task<Void, Never>?
+    private var actionTask: Task<Void, Never>?
     private var menuIsOpen = false
     private var actionRunning = false
     private var hasStarted = false
@@ -53,12 +54,12 @@ final class RefreshCoordinator: ObservableObject {
                 store.errorMessage = "RunOS Desktop cannot identify CLI version '\(currentVersion)'. Run 'runos update'."
                 return
             }
-            async let statusResult = runner.run(["status", "--json"])
-            async let accountsResult = runner.run(["account", "list", "--json"])
-            async let vpnResult = runner.run(["vpn", "status", "--json"])
-            let status = try await statusResult.decode(CLIStatus.self)
-            let accounts = try await accountsResult.decode(AccountListResult.self)
-            let vpn = try? await vpnResult.decode(VPNStatus.self)
+            let statusResult = try await runner.run(["status", "--json"])
+            let accountsResult = try await runner.run(["account", "list", "--json"])
+            let vpnResult = try? await runner.run(["vpn", "status", "--json"])
+            let status = try statusResult.decode(CLIStatus.self)
+            let accounts = try accountsResult.decode(AccountListResult.self)
+            let vpn = try? vpnResult?.decode(VPNStatus.self)
             store.cliStatus = status
             store.accounts = accounts.accounts
             store.vpnStatus = vpn
@@ -68,21 +69,35 @@ final class RefreshCoordinator: ObservableObject {
         }
     }
 
-    func perform(_ arguments: [String], message: String) {
+    func perform(_ arguments: [String], message: String, cancellable: Bool = false) {
         guard !actionRunning, let runner else { return }
         actionRunning = true
         store.operationMessage = message
+        store.canCancelOperation = cancellable
         store.errorMessage = nil
-        Task {
+        actionTask = Task {
             do {
                 _ = try await runner.run(arguments)
+            } catch is CancellationError {
             } catch {
                 store.errorMessage = error.localizedDescription
             }
+            let wasCancelled = Task.isCancelled
             actionRunning = false
             store.operationMessage = nil
-            await refresh()
+            store.canCancelOperation = false
+            actionTask = nil
+            if !wasCancelled {
+                await refresh()
+            }
         }
+    }
+
+    func cancelOperation() {
+        guard actionRunning, store.canCancelOperation else { return }
+        store.operationMessage = "Cancelling sign in…"
+        store.canCancelOperation = false
+        actionTask?.cancel()
     }
 
     func updateRunOS() {

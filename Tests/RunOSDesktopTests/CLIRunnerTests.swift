@@ -47,6 +47,28 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertEqual(result.stdout.count, 131_072)
     }
 
+    func testRunnerCancellationTerminatesProcess() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appending(path: "fake-runos")
+        try "#!/bin/sh\nexec sleep 3\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let runner = try CLIRunner(executableURL: executable)
+        let task = Task { try await runner.run(["account", "add", "--json"]) }
+
+        try await Task.sleep(for: .milliseconds(100))
+        let cancellationStarted = Date()
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected CLI execution to be cancelled")
+        } catch is CancellationError {
+            XCTAssertLessThan(Date().timeIntervalSince(cancellationStarted), 1)
+        }
+    }
+
     @MainActor
     func testLiveDevelopmentCLIWhenConfigured() async throws {
         let defaultPath = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".local/bin/runos").path
@@ -102,14 +124,47 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertEqual(store.errorMessage, "account list is unavailable")
     }
 
+    @MainActor
+    func testCoordinatorCancelsCancellableAction() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "account list --json": #"{"schemaVersion":1,"accounts":[]}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
+            "account add --json": "__WAIT__"
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        coordinator.perform(
+            ["account", "add", "--json"],
+            message: "Waiting for browser authentication…",
+            cancellable: true
+        )
+        XCTAssertTrue(store.canCancelOperation)
+        coordinator.cancelOperation()
+        for _ in 0..<100 where store.isBusy {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertFalse(store.isBusy)
+        XCTAssertFalse(store.canCancelOperation)
+        XCTAssertNil(store.errorMessage)
+    }
+
     private func makeFakeCLI(commands: [String: String], missingMessage: String = "unexpected command") throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let executable = directory.appending(path: "fake-runos")
         var script = "#!/bin/sh\ncase \"$*\" in\n"
         for (arguments, output) in commands {
-            let escapedOutput = output.replacingOccurrences(of: "'", with: "'\\''")
-            script += "  '\(arguments)') printf '%s\\n' '\(escapedOutput)' ;;\n"
+            if output == "__WAIT__" {
+                script += "  '\(arguments)') exec sleep 3 ;;\n"
+            } else {
+                let escapedOutput = output.replacingOccurrences(of: "'", with: "'\\''")
+                script += "  '\(arguments)') printf '%s\\n' '\(escapedOutput)' ;;\n"
+            }
         }
         let escapedMessage = missingMessage.replacingOccurrences(of: "'", with: "'\\''")
         script += "  *) printf '%s\\n' '\(escapedMessage)' >&2; exit 7 ;;\nesac\n"

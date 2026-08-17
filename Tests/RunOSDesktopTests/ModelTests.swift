@@ -19,6 +19,14 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(result.clusters.first?.peeredWith, ["c2"])
     }
 
+    func testConnectableClustersExcludeUnavailableVPNs() throws {
+        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"ready","name":"Ready","connected":false,"reachable":true,"peerUp":false,"peeredWith":[]},{"cid":"active","name":"Active","connected":true,"reachable":false,"peerUp":true,"peeredWith":[]},{"cid":"missing","name":"Missing","connected":false,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}] }"#.utf8)
+        let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+
+        XCTAssertEqual(result.connectableClusters.map(\.cid), ["ready", "active"])
+        XCTAssertEqual(result.connectableClusters.filter(\.connected).map(\.cid), ["active"])
+    }
+
     @MainActor
     func testMenuBarStateDerivation() {
         let store = StateStore()

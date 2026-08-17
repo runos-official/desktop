@@ -34,6 +34,10 @@ struct VPNStatus: Decodable, Sendable {
     let session: VPNSession
     let clusters: [VPNCluster]
     let lastPollError: String?
+
+    var connectableClusters: [VPNCluster] {
+        clusters.filter { $0.reachable || $0.connected }
+    }
 }
 
 struct VPNSession: Decodable, Sendable {

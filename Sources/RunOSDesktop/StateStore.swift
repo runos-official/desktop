@@ -8,6 +8,7 @@ final class StateStore: ObservableObject {
     @Published var vpnStatus: VPNStatus?
     @Published var errorMessage: String?
     @Published var operationMessage: String?
+    @Published var canCancelOperation = false
     @Published var cliAvailable = true
     @Published var cliOutdated = false
     @Published var cliDevelopment = false

@@ -30,7 +30,7 @@ actor CLIRunner {
         self.executableURL = executableURL
     }
 
-    func run(_ arguments: [String]) throws -> CLIResult {
+    func run(_ arguments: [String]) async throws -> CLIResult {
         let process = Process()
         let fileManager = FileManager.default
         let executionDirectory = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -57,8 +57,28 @@ actor CLIRunner {
         process.arguments = arguments
         process.standardOutput = outputHandle
         process.standardError = errorHandle
-        try process.run()
-        process.waitUntilExit()
+        try Task.checkCancellation()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                process.terminationHandler = { _ in
+                    continuation.resume()
+                }
+                do {
+                    try process.run()
+                    if Task.isCancelled {
+                        process.terminate()
+                    }
+                } catch {
+                    process.terminationHandler = nil
+                    continuation.resume(throwing: error)
+                }
+            }
+        } onCancel: {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        try Task.checkCancellation()
         try outputHandle.close()
         try errorHandle.close()
 

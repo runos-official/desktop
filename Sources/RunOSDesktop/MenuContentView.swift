@@ -9,16 +9,23 @@ struct MenuContentView: View {
 
     var body: some View {
         Group {
-            accountSection
-            vpnSection
-            clusterSection
-            accountPicker
-            actionSection
+            Group {
+                accountSection
+                vpnSection
+                connectMenu
+                accountPicker
+                actionSection
+            }
+            .disabled(store.isBusy)
+            if store.canCancelOperation {
+                Button("Cancel Sign In", role: .cancel) {
+                    coordinator.cancelOperation()
+                }
+            }
             Divider()
             Button("About RunOS Desktop") { AboutPresenter.live.show() }
             Button("Quit RunOS Desktop") { NSApplication.shared.terminate(nil) }
         }
-        .disabled(store.isBusy)
         .onAppear { coordinator.setMenuOpen(true) }
         .onDisappear { coordinator.setMenuOpen(false) }
     }
@@ -59,27 +66,34 @@ struct MenuContentView: View {
     }
 
     @ViewBuilder
-    private var clusterSection: some View {
-        if let vpn = store.vpnStatus, !vpn.clusters.isEmpty {
-            Section("Clusters") {
-                ForEach(vpn.clusters) { cluster in
-                    Button {
-                        coordinator.perform(
-                            DesktopCommands.setCluster(cluster.cid, connected: cluster.connected),
-                            message: "Updating \(cluster.name)…"
-                        )
-                    } label: {
-                        Label(cluster.name.isEmpty ? cluster.cid : cluster.name, systemImage: cluster.connected ? "checkmark.circle.fill" : "circle")
-                    }
-                    if !cluster.reachable, let reason = cluster.reason, !reason.isEmpty {
-                        Text("\(cluster.cid): \(reason)")
+    private var connectMenu: some View {
+        Menu("Connect") {
+            if let vpn = store.vpnStatus {
+                ForEach(vpn.connectableClusters) { cluster in
+                    Toggle(isOn: Binding(
+                        get: { cluster.connected },
+                        set: { _ in
+                            coordinator.perform(
+                                DesktopCommands.setCluster(cluster.cid, connected: cluster.connected),
+                                message: cluster.connected
+                                    ? "Disconnecting \(cluster.name)…"
+                                    : "Connecting \(cluster.name)…"
+                            )
+                        }
+                    )) {
+                        Text(cluster.name.isEmpty ? cluster.cid : cluster.name)
                     }
                 }
-                ForEach(peeringHints(vpn.clusters), id: \.self) { hint in
-                    Text(hint)
+                let hints = peeringHints(vpn.connectableClusters)
+                if !hints.isEmpty {
+                    Divider()
+                    ForEach(hints, id: \.self) { hint in
+                        Text(hint)
+                    }
                 }
             }
         }
+        .disabled(store.vpnStatus?.connectableClusters.isEmpty != false)
     }
 
     @ViewBuilder
@@ -87,13 +101,21 @@ struct MenuContentView: View {
         Section("Accounts") {
             ForEach(store.accounts) { account in
                 Button {
-                    coordinator.perform(DesktopCommands.switchAccount(account.accountId), message: "Authenticating \(account.accountId)…")
+                    coordinator.perform(
+                        DesktopCommands.switchAccount(account.accountId),
+                        message: "Authenticating \(account.accountId)…",
+                        cancellable: true
+                    )
                 } label: {
                     Label(account.accountId, systemImage: account.active ? "checkmark" : "person.crop.circle")
                 }
             }
             Button("Add Account…") {
-                coordinator.perform(["account", "add", "--json"], message: "Waiting for browser authentication…")
+                coordinator.perform(
+                    ["account", "add", "--json"],
+                    message: "Waiting for browser authentication…",
+                    cancellable: true
+                )
             }
         }
     }
@@ -114,8 +136,9 @@ struct MenuContentView: View {
 
     private func peeringHints(_ clusters: [VPNCluster]) -> [String] {
         let connected = Set(clusters.filter(\.connected).map(\.cid))
+        let available = Set(clusters.map(\.cid))
         return clusters.filter(\.connected).flatMap { cluster in
-            cluster.peeredWith.filter { !connected.contains($0) }.map { peer in
+            cluster.peeredWith.filter { available.contains($0) && !connected.contains($0) }.map { peer in
                 "\(peer) is peered with \(cluster.cid). Connect \(peer) for private routes and DNS."
             }
         }
