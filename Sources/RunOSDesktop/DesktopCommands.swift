@@ -10,4 +10,11 @@ enum DesktopCommands {
     static func setCluster(_ cid: String, connected: Bool) -> [String] {
         ["vpn", connected ? "disconnect" : "connect", cid, "--json"]
     }
+
+    static func toggleCluster(_ cid: String, isConnected: Bool, connectedClusterCount: Int) -> [String] {
+        if isConnected, connectedClusterCount == 1 {
+            return setVPN(enabled: false)
+        }
+        return setCluster(cid, connected: isConnected)
+    }
 }

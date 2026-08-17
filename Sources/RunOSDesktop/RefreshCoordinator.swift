@@ -43,15 +43,15 @@ final class RefreshCoordinator: ObservableObject {
             let version = try await runner.run(["--version"])
             let currentVersion = String(decoding: version.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             let compatibility = VersionComparator.compatibility(currentVersion, minimum: minimumCLIVersion)
-            store.cliVersion = currentVersion
-            store.cliDevelopment = compatibility == .development
-            store.cliOutdated = compatibility == .outdated
+            update(\.cliVersion, to: currentVersion)
+            update(\.cliDevelopment, to: compatibility == .development)
+            update(\.cliOutdated, to: compatibility == .outdated)
             if compatibility == .outdated {
-                store.errorMessage = "RunOS Desktop requires CLI \(minimumCLIVersion) or newer. Run 'runos update'."
+                update(\.errorMessage, to: "RunOS Desktop requires CLI \(minimumCLIVersion) or newer. Run 'runos update'.")
                 return
             }
             if compatibility == .invalid {
-                store.errorMessage = "RunOS Desktop cannot identify CLI version '\(currentVersion)'. Run 'runos update'."
+                update(\.errorMessage, to: "RunOS Desktop cannot identify CLI version '\(currentVersion)'. Run 'runos update'.")
                 return
             }
             let statusResult = try await runner.run(["status", "--json"])
@@ -60,12 +60,12 @@ final class RefreshCoordinator: ObservableObject {
             let status = try statusResult.decode(CLIStatus.self)
             let accounts = try accountsResult.decode(AccountListResult.self)
             let vpn = try? vpnResult?.decode(VPNStatus.self)
-            store.cliStatus = status
-            store.accounts = accounts.accounts
-            store.vpnStatus = vpn
-            store.errorMessage = status.authError
+            update(\.cliStatus, to: status)
+            update(\.accounts, to: accounts.accounts)
+            update(\.vpnStatus, to: vpn)
+            update(\.errorMessage, to: status.authError)
         } catch {
-            store.errorMessage = error.localizedDescription
+            update(\.errorMessage, to: error.localizedDescription)
         }
     }
 
@@ -157,6 +157,14 @@ final class RefreshCoordinator: ObservableObject {
 
     private var minimumCLIVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "RunOSMinimumCLIVersion") as? String ?? "1.15.0"
+    }
+
+    private func update<Value: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<StateStore, Value>,
+        to value: Value
+    ) {
+        guard store[keyPath: keyPath] != value else { return }
+        store[keyPath: keyPath] = value
     }
 }
 

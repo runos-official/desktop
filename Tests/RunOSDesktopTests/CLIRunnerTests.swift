@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import RunOSDesktop
@@ -122,6 +123,29 @@ final class CLIRunnerTests: XCTestCase {
         await coordinator.refresh()
 
         XCTAssertEqual(store.errorMessage, "account list is unavailable")
+    }
+
+    @MainActor
+    func testUnchangedRefreshDoesNotRepublishMenuState() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "account list --json": #"{"schemaVersion":1,"accounts":[]}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+        await coordinator.refresh()
+        var notificationCount = 0
+        let observation = coordinator.objectWillChange.sink {
+            notificationCount += 1
+        }
+
+        await coordinator.refresh()
+
+        XCTAssertEqual(notificationCount, 0)
+        withExtendedLifetime(observation) {}
     }
 
     @MainActor

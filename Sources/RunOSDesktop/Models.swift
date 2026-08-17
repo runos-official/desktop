@@ -1,6 +1,6 @@
 import Foundation
 
-struct CLIStatus: Decodable, Sendable {
+struct CLIStatus: Decodable, Equatable, Sendable {
     let schemaVersion: Int?
     let authenticated: Bool
     let accountId: String?
@@ -11,12 +11,12 @@ struct CLIStatus: Decodable, Sendable {
     let authError: String?
 }
 
-struct AccountListResult: Decodable, Sendable {
+struct AccountListResult: Decodable, Equatable, Sendable {
     let schemaVersion: Int
     let accounts: [AccountEntry]
 }
 
-struct AccountEntry: Decodable, Identifiable, Sendable {
+struct AccountEntry: Decodable, Equatable, Identifiable, Sendable {
     let accountId: String
     let active: Bool
     let addedAt: String
@@ -28,7 +28,7 @@ struct AccountEntry: Decodable, Identifiable, Sendable {
     var id: String { accountId }
 }
 
-struct VPNStatus: Decodable, Sendable {
+struct VPNStatus: Decodable, Equatable, Sendable {
     let schemaVersion: Int?
     let running: Bool
     let accountId: String?
@@ -41,13 +41,13 @@ struct VPNStatus: Decodable, Sendable {
     }
 }
 
-struct VPNSession: Decodable, Sendable {
+struct VPNSession: Decodable, Equatable, Sendable {
     let present: Bool
     let expiresAt: Date?
     let loginRequired: Bool
 }
 
-struct VPNCluster: Decodable, Identifiable, Sendable {
+struct VPNCluster: Decodable, Equatable, Identifiable, Sendable {
     let cid: String
     let name: String
     let connected: Bool

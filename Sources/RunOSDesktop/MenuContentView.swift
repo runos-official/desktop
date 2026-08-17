@@ -61,16 +61,26 @@ struct MenuContentView: View {
                 if vpn.connectableClusters.isEmpty {
                     Text("No VPN clusters available")
                 } else {
+                    let connectedClusterCount = vpn.connectableClusters.filter(\.connected).count
                     ForEach(vpn.connectableClusters) { cluster in
                         Toggle(isOn: Binding(
                             get: { cluster.connected },
                             set: { _ in
-                                coordinator.perform(
-                                    DesktopCommands.setCluster(cluster.cid, connected: cluster.connected),
-                                    message: cluster.connected
-                                        ? "Disconnecting \(cluster.name)…"
-                                        : "Connecting \(cluster.name)…"
+                                let command = DesktopCommands.toggleCluster(
+                                    cluster.cid,
+                                    isConnected: cluster.connected,
+                                    connectedClusterCount: connectedClusterCount
                                 )
+                                let disconnectsVPN = command == DesktopCommands.setVPN(enabled: false)
+                                let message: String
+                                if disconnectsVPN {
+                                    message = "Disconnecting VPN…"
+                                } else if cluster.connected {
+                                    message = "Disconnecting \(cluster.name)…"
+                                } else {
+                                    message = "Connecting \(cluster.name)…"
+                                }
+                                coordinator.perform(command, message: message)
                             }
                         )) {
                             Text(cluster.name.isEmpty ? cluster.cid : cluster.name)

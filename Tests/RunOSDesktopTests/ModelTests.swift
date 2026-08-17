@@ -59,6 +59,14 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(DesktopCommands.switchAccount("acct"), ["account", "switch", "acct", "--json"])
         XCTAssertEqual(DesktopCommands.setVPN(enabled: false), ["vpn", "down", "--json"])
         XCTAssertEqual(DesktopCommands.setCluster("cid", connected: false), ["vpn", "connect", "cid", "--json"])
+        XCTAssertEqual(
+            DesktopCommands.toggleCluster("cid", isConnected: true, connectedClusterCount: 1),
+            ["vpn", "down", "--json"]
+        )
+        XCTAssertEqual(
+            DesktopCommands.toggleCluster("cid", isConnected: true, connectedClusterCount: 2),
+            ["vpn", "disconnect", "cid", "--json"]
+        )
     }
 
     func testVersionComparison() {
