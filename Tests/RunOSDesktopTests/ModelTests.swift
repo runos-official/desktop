@@ -12,6 +12,13 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(result.accounts.first?.active == true)
     }
 
+    func testCLIStatusDecoderKeepsCompanyName() throws {
+        let data = Data(#"{"schemaVersion":1,"authenticated":true,"accountId":"acct","companyName":"Example Company"}"#.utf8)
+        let result = try JSONDecoder.runOS.decode(CLIStatus.self, from: data)
+
+        XCTAssertEqual(result.companyName, "Example Company")
+    }
+
     func testVPNStatusDecoderKeepsUnreachableReasonAndPeering() throws {
         let data = Data(#"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[{"cid":"c1","name":"One","connected":true,"reachable":false,"reason":"no server","peerUp":false,"peeredWith":["c2"]}]}"#.utf8)
         let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
@@ -58,15 +65,25 @@ final class ModelTests: XCTestCase {
     }
 
     @MainActor
-    func testAboutPresenterOpensPanel() {
-        var presentationCount = 0
-        let presenter = AboutPresenter {
-            presentationCount += 1
+    func testAboutPresenterPassesCurrentDetails() {
+        var presentedDetails: AboutDetails?
+        let presenter = AboutPresenter { details in
+            presentedDetails = details
         }
+        let details = AboutDetails(
+            desktopVersion: "1.2.3",
+            cliVersion: "dev-build",
+            accountId: "account-a",
+            companyName: "Example Company"
+        )
 
-        presenter.show()
+        presenter.show(details)
 
-        XCTAssertEqual(presentationCount, 1)
+        XCTAssertEqual(presentedDetails, details)
+    }
+
+    func testAboutLayoutKeepsContentAwayFromWindowEdges() {
+        XCTAssertGreaterThanOrEqual(AboutLayout.panelWidth - AboutLayout.contentWidth, 56)
     }
 
     @MainActor

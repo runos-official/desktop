@@ -23,7 +23,14 @@ struct MenuContentView: View {
                 }
             }
             Divider()
-            Button("About RunOS Desktop") { AboutPresenter.live.show() }
+            Button("About RunOS Desktop") {
+                AboutPresenter.live.show(AboutDetails(
+                    desktopVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development",
+                    cliVersion: store.cliVersion,
+                    accountId: store.activeAccountId,
+                    companyName: store.cliStatus?.companyName
+                ))
+            }
             Button("Quit RunOS Desktop") { NSApplication.shared.terminate(nil) }
         }
         .onAppear { coordinator.setMenuOpen(true) }
@@ -142,20 +149,34 @@ struct MenuContentView: View {
 }
 
 @MainActor
-struct AboutPresenter {
-    private let showPanel: () -> Void
+struct AboutDetails: Equatable, Sendable {
+    let desktopVersion: String
+    let cliVersion: String?
+    let accountId: String?
+    let companyName: String?
+}
 
-    init(showPanel: @escaping () -> Void) {
+enum AboutLayout {
+    static let panelWidth: CGFloat = 400
+    static let panelHeight: CGFloat = 330
+    static let contentWidth: CGFloat = 336
+}
+
+@MainActor
+struct AboutPresenter {
+    private let showPanel: (AboutDetails) -> Void
+
+    init(showPanel: @escaping (AboutDetails) -> Void) {
         self.showPanel = showPanel
     }
 
-    func show() {
-        showPanel()
+    func show(_ details: AboutDetails) {
+        showPanel(details)
     }
 
-    static let live = AboutPresenter {
+    static let live = AboutPresenter { details in
         DispatchQueue.main.async {
-            AboutWindowController.shared.show()
+            AboutWindowController.shared.show(details)
         }
     }
 }
@@ -165,9 +186,10 @@ private final class AboutWindowController {
     static let shared = AboutWindowController()
     private var window: NSPanel?
 
-    func show() {
+    func show(_ details: AboutDetails) {
         let panel = window ?? makePanel()
         window = panel
+        panel.contentView = NSHostingView(rootView: AboutContentView(details: details))
         NSApplication.shared.activate(ignoringOtherApps: true)
         panel.center()
         panel.makeKeyAndOrderFront(nil)
@@ -179,7 +201,7 @@ private final class AboutWindowController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 260),
+            contentRect: NSRect(x: 0, y: 0, width: AboutLayout.panelWidth, height: AboutLayout.panelHeight),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -187,15 +209,12 @@ private final class AboutWindowController {
         panel.title = "About RunOS Desktop"
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
-        panel.contentView = NSHostingView(rootView: AboutContentView())
         return panel
     }
 }
 
 private struct AboutContentView: View {
-    private var version: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
-    }
+    let details: AboutDetails
 
     var body: some View {
         VStack(spacing: 12) {
@@ -205,8 +224,20 @@ private struct AboutContentView: View {
                 .frame(width: 50, height: 50)
             Text("RunOS Desktop")
                 .font(.title2.bold())
-            Text("Version \(version)")
+            VStack(spacing: 3) {
+                Text("Desktop version \(details.desktopVersion)")
+                Text("CLI version \(details.cliVersion ?? "Unavailable")")
+                if let accountId = details.accountId {
+                    Text("Signed in: \(accountId)")
+                }
+                if let companyName = details.companyName {
+                    Text("Company: \(companyName)")
+                }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
             Text("RunOS brings cloud infrastructure to your own hardware.")
+                .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Link("runos.com", destination: URL(string: "https://runos.com")!)
@@ -217,6 +248,7 @@ private struct AboutContentView: View {
             }
             .keyboardShortcut(.cancelAction)
         }
-        .frame(width: 360, height: 260)
+        .frame(width: AboutLayout.contentWidth)
+        .frame(width: AboutLayout.panelWidth, height: AboutLayout.panelHeight)
     }
 }

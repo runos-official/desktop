@@ -4,6 +4,7 @@ struct CLIStatus: Decodable, Sendable {
     let schemaVersion: Int?
     let authenticated: Bool
     let accountId: String?
+    let companyName: String?
     let vpnAccountId: String?
     let vpnAccountMismatch: Bool?
     let vpnRunning: Bool?
