@@ -180,17 +180,19 @@ private struct AboutContentView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image("MenuBarIcon")
+            Image("AboutIcon")
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 54, height: 54)
+                .frame(width: 50, height: 50)
             Text("RunOS Desktop")
                 .font(.title2.bold())
             Text("Version \(version)")
-            Text("Unsigned menu-bar facade for the RunOS CLI.")
+            Text("RunOS brings cloud infrastructure to your own hardware.")
                 .foregroundStyle(.secondary)
-            Text("Elastic License 2.0")
-                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Link("runos.com", destination: URL(string: "https://runos.com")!)
+                Link("support@runos.com", destination: URL(string: "mailto:support@runos.com")!)
+            }
             Button("Close") {
                 AboutWindowController.shared.close()
             }

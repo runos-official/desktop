@@ -1,4 +1,5 @@
 import Combine
+import AppKit
 import XCTest
 @testable import RunOSDesktop
 
@@ -58,6 +59,14 @@ final class ModelTests: XCTestCase {
         presenter.show()
 
         XCTAssertEqual(presentationCount, 1)
+    }
+
+    @MainActor
+    func testAboutIconHasNativeResolution() throws {
+        let icon = try XCTUnwrap(NSImage(named: "AboutIcon"))
+        let largestWidth = icon.representations.map(\.pixelsWide).max()
+
+        XCTAssertGreaterThanOrEqual(largestWidth ?? 0, 100)
     }
 
     @MainActor
