@@ -18,6 +18,9 @@ final class StateStore: ObservableObject {
 
     var activeAccountId: String? { cliStatus?.accountId }
     var isBusy: Bool { operationMessage != nil }
+    var updateActionTitle: String {
+        operationMessage == "Updating RunOS…" ? "Updating RunOS…" : "Update RunOS"
+    }
 
     var menuBarState: MenuBarState {
         if isBusy || errorMessage != nil || cliOutdated || cliStatus?.vpnAccountMismatch == true || vpnStatus?.session.loginRequired == true {

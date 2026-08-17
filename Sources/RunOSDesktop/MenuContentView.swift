@@ -126,7 +126,7 @@ struct MenuContentView: View {
     @ViewBuilder
     private var actionItems: some View {
         Group {
-            Button("Update RunOS") { coordinator.updateRunOS() }
+            Button(store.updateActionTitle) { coordinator.updateRunOS() }
             Toggle("Launch at Login", isOn: Binding(
                 get: { loginItem.isEnabled },
                 set: { loginItem.setEnabled($0) }

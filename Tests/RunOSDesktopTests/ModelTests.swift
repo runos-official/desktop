@@ -45,6 +45,16 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(store.menuBarState, .connected)
     }
 
+    @MainActor
+    func testUpdateActionShowsProgressWhileUpdateRuns() {
+        let store = StateStore()
+        XCTAssertEqual(store.updateActionTitle, "Update RunOS")
+
+        store.operationMessage = "Updating RunOS…"
+
+        XCTAssertEqual(store.updateActionTitle, "Updating RunOS…")
+    }
+
     func testCommandConstruction() {
         XCTAssertEqual(DesktopCommands.switchAccount("acct"), ["account", "switch", "acct", "--json"])
         XCTAssertEqual(DesktopCommands.setVPN(enabled: false), ["vpn", "down", "--json"])
