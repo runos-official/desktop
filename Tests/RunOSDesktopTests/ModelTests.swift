@@ -74,6 +74,31 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(VersionComparator.compatibility("unexpected", minimum: "1.15.0"), .invalid)
     }
 
+    func testMenuBarActivityFramesCycleDuringActions() {
+        XCTAssertEqual(
+            MenuBarIconAnimation.imageName(isActive: false, reduceMotion: false, frame: 2),
+            "MenuBarIcon"
+        )
+        XCTAssertEqual(
+            (0..<4).map { MenuBarIconAnimation.imageName(isActive: true, reduceMotion: false, frame: $0) },
+            ["MenuBarActivity1", "MenuBarActivity2", "MenuBarActivity3", "MenuBarActivity1"]
+        )
+        XCTAssertEqual(
+            MenuBarIconAnimation.imageName(isActive: true, reduceMotion: true, frame: 2),
+            "MenuBarIcon"
+        )
+    }
+
+    @MainActor
+    func testMenuBarActivityIconsHaveRetinaResolution() throws {
+        for name in ["MenuBarActivity1", "MenuBarActivity2", "MenuBarActivity3"] {
+            let icon = try XCTUnwrap(NSImage(named: name))
+            let largestWidth = icon.representations.map(\.pixelsWide).max()
+
+            XCTAssertGreaterThanOrEqual(largestWidth ?? 0, 36)
+        }
+    }
+
     @MainActor
     func testAboutPresenterPassesCurrentDetails() {
         var presentedDetails: AboutDetails?

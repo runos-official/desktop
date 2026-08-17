@@ -30,20 +30,61 @@ struct RunOSDesktopApp: App {
         MenuBarExtra {
             MenuContentView(coordinator: coordinator, loginItem: loginItem)
         } label: {
-            ZStack(alignment: .bottomTrailing) {
-                Image("MenuBarIcon")
-                Circle()
-                    .fill(indicatorColor)
-                    .frame(width: 6, height: 6)
-                    .overlay(Circle().stroke(.black.opacity(0.35), lineWidth: 0.5))
-            }
-            .accessibilityLabel(accessibilityLabel)
+            MenuBarGlyphView(
+                state: coordinator.store.menuBarState,
+                isActive: coordinator.store.isBusy
+            )
         }
         .menuBarExtraStyle(.menu)
     }
+}
+
+enum MenuBarIconAnimation {
+    static let frameNames = ["MenuBarActivity1", "MenuBarActivity2", "MenuBarActivity3"]
+
+    static func imageName(isActive: Bool, reduceMotion: Bool, frame: Int) -> String {
+        guard isActive, !reduceMotion else { return "MenuBarIcon" }
+        return frameNames[frame % frameNames.count]
+    }
+}
+
+private struct MenuBarGlyphView: View {
+    let state: MenuBarState
+    let isActive: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var activityFrame = 0
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Image(MenuBarIconAnimation.imageName(
+                isActive: isActive,
+                reduceMotion: reduceMotion,
+                frame: activityFrame
+            ))
+            .renderingMode(.template)
+            Circle()
+                .fill(indicatorColor)
+                .frame(width: 6, height: 6)
+                .overlay(Circle().stroke(.black.opacity(0.35), lineWidth: 0.5))
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .task(id: AnimationTaskID(isActive: isActive, reduceMotion: reduceMotion)) {
+            activityFrame = 0
+            guard isActive, !reduceMotion else { return }
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(280))
+                } catch {
+                    return
+                }
+                activityFrame = (activityFrame + 1) % MenuBarIconAnimation.frameNames.count
+            }
+        }
+    }
 
     private var indicatorColor: Color {
-        switch coordinator.store.menuBarState {
+        switch state {
         case .connected: .green
         case .attention: .orange
         case .off: .secondary
@@ -51,10 +92,18 @@ struct RunOSDesktopApp: App {
     }
 
     private var accessibilityLabel: String {
-        switch coordinator.store.menuBarState {
+        if isActive {
+            return "RunOS working"
+        }
+        return switch state {
         case .connected: "RunOS connected"
         case .attention: "RunOS needs attention"
         case .off: "RunOS VPN off"
         }
+    }
+
+    private struct AnimationTaskID: Equatable {
+        let isActive: Bool
+        let reduceMotion: Bool
     }
 }
