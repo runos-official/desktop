@@ -22,6 +22,49 @@ func angularDistance(_ first: Double, _ second: Double) -> Double {
     abs(atan2(sin(first - second), cos(first - second)))
 }
 
+let offOutputDirectory = assetCatalog.appending(path: "MenuBarIconOff.imageset")
+try fileManager.createDirectory(at: offOutputDirectory, withIntermediateDirectories: true)
+
+for source in sources {
+    let sourceURL = sourceDirectory.appending(path: source.filename)
+    guard
+        let sourceData = try? Data(contentsOf: sourceURL),
+        let sourceRepresentation = NSBitmapImageRep(data: sourceData),
+        let outputRepresentation = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: sourceRepresentation.pixelsWide,
+            pixelsHigh: sourceRepresentation.pixelsHigh,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )
+    else {
+        fatalError("Cannot read \(sourceURL.path)")
+    }
+
+    for y in 0..<sourceRepresentation.pixelsHigh {
+        for x in 0..<sourceRepresentation.pixelsWide {
+            var samples = [Int](repeating: 0, count: 4)
+            sourceRepresentation.getPixel(&samples, atX: x, y: y)
+            samples[3] = Int((Double(samples[3]) * 0.55).rounded())
+            samples.withUnsafeMutableBufferPointer { buffer in
+                outputRepresentation.setPixel(buffer.baseAddress!, atX: x, y: y)
+            }
+        }
+    }
+
+    guard let pngData = outputRepresentation.representation(using: .png, properties: [:]) else {
+        fatalError("Cannot encode disconnected icon")
+    }
+    let suffix = source.scale == "1x" ? "" : "@\(source.scale.first!)x"
+    let outputURL = offOutputDirectory.appending(path: "MenuBarIconOff\(suffix).png")
+    try pngData.write(to: outputURL, options: .atomic)
+}
+
 for frame in 0..<3 {
     let outputDirectory = assetCatalog.appending(path: "MenuBarActivity\(frame + 1).imageset")
     try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)

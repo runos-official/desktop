@@ -42,13 +42,11 @@ struct RunOSDesktopApp: App {
 enum MenuBarIconAnimation {
     static let frameNames = ["MenuBarActivity1", "MenuBarActivity2", "MenuBarActivity3"]
 
-    static func imageName(isActive: Bool, reduceMotion: Bool, frame: Int) -> String {
-        guard isActive, !reduceMotion else { return "MenuBarIcon" }
-        return frameNames[frame % frameNames.count]
-    }
-
-    static func opacity(for state: MenuBarState) -> Double {
-        state == .off ? 0.55 : 1
+    static func imageName(state: MenuBarState, isActive: Bool, reduceMotion: Bool, frame: Int) -> String {
+        guard !isActive else {
+            return reduceMotion ? "MenuBarIcon" : frameNames[frame % frameNames.count]
+        }
+        return state == .off ? "MenuBarIconOff" : "MenuBarIcon"
     }
 }
 
@@ -62,12 +60,12 @@ private struct MenuBarGlyphView: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Image(MenuBarIconAnimation.imageName(
+                state: state,
                 isActive: isActive,
                 reduceMotion: reduceMotion,
                 frame: activityFrame
             ))
             .renderingMode(.template)
-            .opacity(MenuBarIconAnimation.opacity(for: state))
             Circle()
                 .fill(indicatorColor)
                 .frame(width: 6, height: 6)

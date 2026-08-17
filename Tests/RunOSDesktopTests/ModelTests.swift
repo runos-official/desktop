@@ -46,6 +46,22 @@ final class ModelTests: XCTestCase {
     }
 
     @MainActor
+    func testMenuBarStartsWithDisconnectedIcon() {
+        let store = StateStore()
+
+        XCTAssertFalse(store.isBusy)
+        XCTAssertEqual(
+            MenuBarIconAnimation.imageName(
+                state: store.menuBarState,
+                isActive: store.isBusy,
+                reduceMotion: false,
+                frame: 0
+            ),
+            "MenuBarIconOff"
+        )
+    }
+
+    @MainActor
     func testUpdateActionShowsProgressWhileUpdateRuns() {
         let store = StateStore()
         XCTAssertEqual(store.updateActionTitle, "Update RunOS")
@@ -84,30 +100,46 @@ final class ModelTests: XCTestCase {
 
     func testMenuBarActivityFramesCycleDuringActions() {
         XCTAssertEqual(
-            MenuBarIconAnimation.imageName(isActive: false, reduceMotion: false, frame: 2),
+            MenuBarIconAnimation.imageName(state: .off, isActive: false, reduceMotion: false, frame: 2),
+            "MenuBarIconOff"
+        )
+        XCTAssertEqual(
+            MenuBarIconAnimation.imageName(state: .connected, isActive: false, reduceMotion: false, frame: 2),
             "MenuBarIcon"
         )
         XCTAssertEqual(
-            (0..<4).map { MenuBarIconAnimation.imageName(isActive: true, reduceMotion: false, frame: $0) },
+            (0..<4).map {
+                MenuBarIconAnimation.imageName(state: .attention, isActive: true, reduceMotion: false, frame: $0)
+            },
             ["MenuBarActivity1", "MenuBarActivity2", "MenuBarActivity3", "MenuBarActivity1"]
         )
         XCTAssertEqual(
-            MenuBarIconAnimation.imageName(isActive: true, reduceMotion: true, frame: 2),
+            MenuBarIconAnimation.imageName(state: .attention, isActive: true, reduceMotion: true, frame: 2),
             "MenuBarIcon"
         )
-        XCTAssertEqual(MenuBarIconAnimation.opacity(for: .off), 0.55)
-        XCTAssertEqual(MenuBarIconAnimation.opacity(for: .connected), 1)
-        XCTAssertEqual(MenuBarIconAnimation.opacity(for: .attention), 1)
     }
 
     @MainActor
     func testMenuBarActivityIconsHaveRetinaResolution() throws {
-        for name in ["MenuBarActivity1", "MenuBarActivity2", "MenuBarActivity3"] {
+        for name in ["MenuBarIconOff", "MenuBarActivity1", "MenuBarActivity2", "MenuBarActivity3"] {
             let icon = try XCTUnwrap(NSImage(named: name))
             let largestWidth = icon.representations.map(\.pixelsWide).max()
 
             XCTAssertGreaterThanOrEqual(largestWidth ?? 0, 36)
         }
+    }
+
+    func testDisconnectedMenuBarIconHasReducedAlpha() throws {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let assets = repository.appending(path: "Sources/RunOSDesktop/Assets.xcassets")
+        let connected = assets.appending(path: "MenuBarIcon.imageset/MenuBarIcon.png")
+        let disconnected = assets.appending(path: "MenuBarIconOff.imageset/MenuBarIconOff.png")
+
+        XCTAssertEqual(try maximumAlpha(at: connected), 255)
+        XCTAssertEqual(try maximumAlpha(at: disconnected), 140)
     }
 
     @MainActor
@@ -153,5 +185,21 @@ final class ModelTests: XCTestCase {
 
         XCTAssertEqual(notificationCount, 1)
         withExtendedLifetime(observation) {}
+    }
+
+    private func maximumAlpha(at url: URL) throws -> Int {
+        let data = try Data(contentsOf: url)
+        let image = try XCTUnwrap(NSBitmapImageRep(data: data))
+        var maximum = 0
+
+        for y in 0..<image.pixelsHigh {
+            for x in 0..<image.pixelsWide {
+                var samples = [Int](repeating: 0, count: 4)
+                image.getPixel(&samples, atX: x, y: y)
+                maximum = max(maximum, samples[3])
+            }
+        }
+
+        return maximum
     }
 }
