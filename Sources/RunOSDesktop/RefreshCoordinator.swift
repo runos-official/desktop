@@ -69,11 +69,19 @@ final class RefreshCoordinator: ObservableObject {
         }
     }
 
-    func perform(_ arguments: [String], message: String, cancellable: Bool = false) {
+    func perform(
+        _ arguments: [String],
+        message: String,
+        cancellable: Bool = false,
+        cancelLabel: String = "Cancel Sign In",
+        cancellingMessage: String = "Cancelling sign in…"
+    ) {
         guard !actionRunning, let runner else { return }
         actionRunning = true
         store.operationMessage = message
         store.canCancelOperation = cancellable
+        store.cancelOperationLabel = cancellable ? cancelLabel : nil
+        store.cancellingOperationMessage = cancellable ? cancellingMessage : nil
         store.errorMessage = nil
         actionTask = Task {
             do {
@@ -86,6 +94,8 @@ final class RefreshCoordinator: ObservableObject {
             actionRunning = false
             store.operationMessage = nil
             store.canCancelOperation = false
+            store.cancelOperationLabel = nil
+            store.cancellingOperationMessage = nil
             actionTask = nil
             if !wasCancelled {
                 await refresh()
@@ -95,9 +105,19 @@ final class RefreshCoordinator: ObservableObject {
 
     func cancelOperation() {
         guard actionRunning, store.canCancelOperation else { return }
-        store.operationMessage = "Cancelling sign in…"
+        store.operationMessage = store.cancellingOperationMessage ?? "Cancelling…"
         store.canCancelOperation = false
         actionTask?.cancel()
+    }
+
+    func setVPN(enabled: Bool) {
+        perform(
+            DesktopCommands.setVPN(enabled: enabled),
+            message: enabled ? "Connecting VPN…" : "Disconnecting VPN…",
+            cancellable: enabled,
+            cancelLabel: "Cancel Connection",
+            cancellingMessage: "Cancelling connection…"
+        )
     }
 
     func updateRunOS() {

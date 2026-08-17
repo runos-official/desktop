@@ -153,6 +153,33 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertNil(store.errorMessage)
     }
 
+    @MainActor
+    func testCoordinatorCancelsVPNBrowserAuthentication() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "account list --json": #"{"schemaVersion":1,"accounts":[]}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":true},"clusters":[]}"#,
+            "vpn up --json": "__WAIT__"
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        coordinator.setVPN(enabled: true)
+
+        XCTAssertEqual(store.operationMessage, "Connecting VPN…")
+        XCTAssertEqual(store.cancelOperationLabel, "Cancel Connection")
+        coordinator.cancelOperation()
+        for _ in 0..<100 where store.isBusy {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertFalse(store.isBusy)
+        XCTAssertFalse(store.canCancelOperation)
+        XCTAssertNil(store.errorMessage)
+    }
+
     private func makeFakeCLI(commands: [String: String], missingMessage: String = "unexpected command") throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

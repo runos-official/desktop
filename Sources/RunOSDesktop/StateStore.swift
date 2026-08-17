@@ -9,6 +9,8 @@ final class StateStore: ObservableObject {
     @Published var errorMessage: String?
     @Published var operationMessage: String?
     @Published var canCancelOperation = false
+    @Published var cancelOperationLabel: String?
+    @Published var cancellingOperationMessage: String?
     @Published var cliAvailable = true
     @Published var cliOutdated = false
     @Published var cliDevelopment = false

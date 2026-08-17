@@ -19,7 +19,7 @@ struct MenuContentView: View {
             }
             .disabled(store.isBusy)
             if store.canCancelOperation {
-                Button("Cancel Sign In", role: .cancel) {
+                Button(store.cancelOperationLabel ?? "Cancel Operation", role: .cancel) {
                     coordinator.cancelOperation()
                 }
             }
@@ -54,7 +54,7 @@ struct MenuContentView: View {
             Toggle("VPN", isOn: Binding(
                 get: { store.vpnStatus?.running == true },
                 set: { enabled in
-                    coordinator.perform(DesktopCommands.setVPN(enabled: enabled), message: enabled ? "Connecting VPN…" : "Disconnecting VPN…")
+                    coordinator.setVPN(enabled: enabled)
                 }
             ))
             if store.vpnStatus?.session.loginRequired == true {
