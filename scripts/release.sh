@@ -61,7 +61,7 @@ grep -qE "^## ${CHANGELOG_VERSION//./\\.}([[:space:]]|$)" CHANGELOG.md || fail "
 
 DEPLOYED_EXISTS="false"
 DEPLOYED_REF=""
-git fetch --quiet origin "$DEPLOYED_BRANCH" || true
+git fetch --quiet origin "$DEPLOYED_BRANCH" >/dev/null 2>&1 || true
 if git show-ref --verify --quiet "refs/heads/$DEPLOYED_BRANCH"; then
   DEPLOYED_EXISTS="true"
   DEPLOYED_REF="$DEPLOYED_BRANCH"
