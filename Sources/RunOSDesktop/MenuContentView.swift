@@ -51,12 +51,9 @@ struct MenuContentView: View {
     @ViewBuilder
     private var vpnControl: some View {
         Group {
-            Toggle("VPN", isOn: Binding(
-                get: { store.vpnStatus?.running == true },
-                set: { enabled in
-                    coordinator.setVPN(enabled: enabled)
-                }
-            ))
+            Button(store.vpnStatus?.running == true ? "Disconnect VPN" : "Connect VPN") {
+                coordinator.setVPN(enabled: store.vpnStatus?.running != true)
+            }
             if store.vpnStatus?.session.loginRequired == true {
                 Text("Browser authentication is required.")
             }
