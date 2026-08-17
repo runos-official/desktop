@@ -1,0 +1,74 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    strategy:
+      matrix:
+        include:
+          - go_arch: arm64
+            xcode_arch: arm64
+          - go_arch: amd64
+            xcode_arch: x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the application
+        env:
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          xcodebuild \
+            -project RunOSDesktop.xcodeproj \
+            -scheme RunOSDesktop \
+            -configuration Release \
+            -derivedDataPath build/DerivedData-${{ matrix.go_arch }} \
+            ARCHS=${{ matrix.xcode_arch }} \
+            ONLY_ACTIVE_ARCH=YES \
+            MARKETING_VERSION="$version" \
+            build
+          app="build/DerivedData-${{ matrix.go_arch }}/Build/Products/Release/RunOS Desktop.app"
+          codesign --force --deep --sign - --options runtime "$app"
+          codesign --verify --deep --strict "$app"
+          mkdir -p dist
+          ditto -c -k --keepParent "$app" "dist/runos-desktop-macos-${{ matrix.go_arch }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.go_arch }}
+          path: dist/runos-desktop-macos-${{ matrix.go_arch }}.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum runos-desktop-macos-arm64.zip runos-desktop-macos-amd64.zip > checksums.txt
+      - name: Generate build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/runos-desktop-macos-arm64.zip
+            dist/runos-desktop-macos-amd64.zip
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
