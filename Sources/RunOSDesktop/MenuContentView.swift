@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+enum MenuPresentation {
+    static func clusterLabel(name: String, cid: String) -> String {
+        let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return displayName.isEmpty ? cid : "\(displayName) (\(cid))"
+    }
+}
+
 struct MenuContentView: View {
     @ObservedObject var coordinator: RefreshCoordinator
     @ObservedObject var loginItem: LoginItemController
@@ -63,6 +70,7 @@ struct MenuContentView: View {
                 } else {
                     let connectedClusterCount = vpn.connectableClusters.filter(\.connected).count
                     ForEach(vpn.connectableClusters) { cluster in
+                        let clusterLabel = MenuPresentation.clusterLabel(name: cluster.name, cid: cluster.cid)
                         Toggle(isOn: Binding(
                             get: { cluster.connected },
                             set: { _ in
@@ -76,14 +84,14 @@ struct MenuContentView: View {
                                 if disconnectsVPN {
                                     message = "Disconnecting VPN…"
                                 } else if cluster.connected {
-                                    message = "Disconnecting \(cluster.name)…"
+                                    message = "Disconnecting \(clusterLabel)…"
                                 } else {
-                                    message = "Connecting \(cluster.name)…"
+                                    message = "Connecting \(clusterLabel)…"
                                 }
                                 coordinator.perform(command, message: message)
                             }
                         )) {
-                            Text(cluster.name.isEmpty ? cluster.cid : cluster.name)
+                            Text(clusterLabel)
                         }
                     }
                 }

@@ -85,6 +85,11 @@ final class ModelTests: XCTestCase {
         )
     }
 
+    func testVPNClusterLabelIncludesCID() {
+        XCTAssertEqual(MenuPresentation.clusterLabel(name: "vhm-lab", cid: "g4v"), "vhm-lab (g4v)")
+        XCTAssertEqual(MenuPresentation.clusterLabel(name: "", cid: "g4v"), "g4v")
+    }
+
     func testVersionComparison() {
         XCTAssertTrue(VersionComparator.isOlder("1.14.9", than: "1.15.0"))
         XCTAssertFalse(VersionComparator.isOlder("v1.15.0", than: "1.15.0"))
