@@ -46,6 +46,10 @@ enum MenuBarIconAnimation {
         guard isActive, !reduceMotion else { return "MenuBarIcon" }
         return frameNames[frame % frameNames.count]
     }
+
+    static func opacity(for state: MenuBarState) -> Double {
+        state == .off ? 0.55 : 1
+    }
 }
 
 private struct MenuBarGlyphView: View {
@@ -63,6 +67,7 @@ private struct MenuBarGlyphView: View {
                 frame: activityFrame
             ))
             .renderingMode(.template)
+            .opacity(MenuBarIconAnimation.opacity(for: state))
             Circle()
                 .fill(indicatorColor)
                 .frame(width: 6, height: 6)

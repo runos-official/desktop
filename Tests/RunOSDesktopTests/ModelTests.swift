@@ -95,6 +95,9 @@ final class ModelTests: XCTestCase {
             MenuBarIconAnimation.imageName(isActive: true, reduceMotion: true, frame: 2),
             "MenuBarIcon"
         )
+        XCTAssertEqual(MenuBarIconAnimation.opacity(for: .off), 0.55)
+        XCTAssertEqual(MenuBarIconAnimation.opacity(for: .connected), 1)
+        XCTAssertEqual(MenuBarIconAnimation.opacity(for: .attention), 1)
     }
 
     @MainActor
