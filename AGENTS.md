@@ -10,4 +10,6 @@ RunOS Desktop is a permanent facade over the `runos` CLI.
 - Use no third-party Swift packages.
 - Support macOS 15 and newer.
 - Run `make verify` before each release.
+- Use `make release VERSION=vX.Y.Z CHECK=1` before each release.
+- Release candidates must pass live verification before production promotion.
 - Do not add assistant co-author trailers to commits.

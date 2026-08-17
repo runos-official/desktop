@@ -9,7 +9,15 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify the application
+        run: make verify
+
   build:
+    needs: verify
     runs-on: macos-15
     strategy:
       matrix:
@@ -19,7 +27,7 @@ jobs:
           - go_arch: amd64
             xcode_arch: x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build the application
         env:
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
@@ -39,7 +47,7 @@ jobs:
           codesign --verify --deep --strict "$app"
           mkdir -p dist
           ditto -c -k --keepParent "$app" "dist/runos-desktop-macos-${{ matrix.go_arch }}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-${{ matrix.go_arch }}
           path: dist/runos-desktop-macos-${{ matrix.go_arch }}.zip
@@ -52,9 +60,9 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-      artifact-metadata: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: desktop-*
           path: dist
@@ -63,12 +71,33 @@ jobs:
         working-directory: dist
         run: sha256sum runos-desktop-macos-arm64.zip runos-desktop-macos-amd64.zip > checksums.txt
       - name: Generate build provenance
-        uses: actions/attest@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: |
             dist/runos-desktop-macos-arm64.zip
             dist/runos-desktop-macos-amd64.zip
+      - name: Extract release notes
+        run: |
+          base="${GITHUB_REF_NAME%%-*}"
+          escaped_base="${base//./\\.}"
+          awk "
+            /^## ${escaped_base}([[:space:]]|$)/ { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          " CHANGELOG.md > release_notes.txt
+          test -s release_notes.txt
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
+        run: |
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --notes-file release_notes.txt \
+            --verify-tag \
+            "${prerelease[@]}"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
