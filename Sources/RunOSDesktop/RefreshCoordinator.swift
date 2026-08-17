@@ -38,7 +38,11 @@ final class RefreshCoordinator: ObservableObject {
     }
 
     func refresh() async {
-        guard !actionRunning, let runner else { return }
+        await refresh(allowDuringAction: false)
+    }
+
+    private func refresh(allowDuringAction: Bool) async {
+        guard (allowDuringAction || !actionRunning), let runner else { return }
         do {
             let version = try await runner.run(["--version"])
             let currentVersion = String(decoding: version.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -91,15 +95,15 @@ final class RefreshCoordinator: ObservableObject {
                 store.errorMessage = error.localizedDescription
             }
             let wasCancelled = Task.isCancelled
-            actionRunning = false
-            store.operationMessage = nil
             store.canCancelOperation = false
             store.cancelOperationLabel = nil
             store.cancellingOperationMessage = nil
-            actionTask = nil
             if !wasCancelled {
-                await refresh()
+                await refresh(allowDuringAction: true)
             }
+            actionRunning = false
+            store.operationMessage = nil
+            actionTask = nil
         }
     }
 
@@ -137,9 +141,9 @@ final class RefreshCoordinator: ObservableObject {
             } catch {
                 store.errorMessage = error.localizedDescription
             }
+            await refresh(allowDuringAction: true)
             actionRunning = false
             store.operationMessage = nil
-            await refresh()
         }
     }
 

@@ -204,7 +204,45 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertNil(store.errorMessage)
     }
 
-    private func makeFakeCLI(commands: [String: String], missingMessage: String = "unexpected command") throws -> URL {
+    @MainActor
+    func testCoordinatorKeepsActivityDuringFinalRefresh() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let executable = try makeFakeCLI(commands: [
+            "vpn up --json": "{}",
+            "--version": "__DELAY__dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "account list --json": #"{"schemaVersion":1,"accounts":[]}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#
+        ], delayMarker: marker)
+        defer {
+            try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: marker)
+        }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        coordinator.setVPN(enabled: true)
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertTrue(store.isBusy)
+        XCTAssertEqual(store.operationMessage, "Connecting VPN…")
+
+        for _ in 0..<200 where store.isBusy {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertFalse(store.isBusy)
+        XCTAssertEqual(store.menuBarState, .connected)
+    }
+
+    private func makeFakeCLI(
+        commands: [String: String],
+        missingMessage: String = "unexpected command",
+        delayMarker: URL? = nil
+    ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let executable = directory.appending(path: "fake-runos")
@@ -212,6 +250,11 @@ final class CLIRunnerTests: XCTestCase {
         for (arguments, output) in commands {
             if output == "__WAIT__" {
                 script += "  '\(arguments)') exec sleep 3 ;;\n"
+            } else if output.hasPrefix("__DELAY__"), let delayMarker {
+                let delayedOutput = String(output.dropFirst("__DELAY__".count))
+                    .replacingOccurrences(of: "'", with: "'\\''")
+                let escapedMarker = delayMarker.path.replacingOccurrences(of: "'", with: "'\\''")
+                script += "  '\(arguments)') : > '\(escapedMarker)'; sleep 1; printf '%s\\n' '\(delayedOutput)' ;;\n"
             } else {
                 let escapedOutput = output.replacingOccurrences(of: "'", with: "'\\''")
                 script += "  '\(arguments)') printf '%s\\n' '\(escapedOutput)' ;;\n"
