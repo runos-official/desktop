@@ -30,8 +30,42 @@ final class ModelTests: XCTestCase {
         let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"ready","name":"Ready","connected":false,"reachable":true,"peerUp":false,"peeredWith":[]},{"cid":"active","name":"Active","connected":true,"reachable":false,"peerUp":true,"peeredWith":[]},{"cid":"missing","name":"Missing","connected":false,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}] }"#.utf8)
         let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
 
+        // "active" stays in the LIST on purpose: it is connected-but-dead, and the menu is the
+        // only place a person can switch it off, so hiding it would trap them in that state.
         XCTAssertEqual(result.connectableClusters.map(\.cid), ["ready", "active"])
-        XCTAssertEqual(result.connectableClusters.filter(\.connected).map(\.cid), ["active"])
+        // ...but it is NOT a working connection, and nothing may present it as one.
+        XCTAssertFalse(result.hasWorkingConnection)
+        XCTAssertEqual(result.deadConnections.map(\.cid), ["active"])
+    }
+
+    /*
+     The reported defect, in the operator's words: "right now it says i am connected, but theres
+     nothing on the other side, this is wrong".
+
+     A cluster that is in the connected set but whose VPN server is missing carries connected:true
+     and reachable:false. The menu drew it as an ordinary ticked toggle and the menu bar showed the
+     connected icon, so both surfaces asserted a working tunnel over a cluster that routes nothing.
+     */
+    func testADeadConnectionIsNeverPresentedAsWorking() throws {
+        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"vhm-lab","connected":true,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}] }"#.utf8)
+        let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+
+        XCTAssertFalse(result.hasWorkingConnection, "a cluster with no VPN server is not a working connection")
+        XCTAssertTrue(result.clusters[0].isDeadConnection)
+
+        // The label a person reads must carry the trouble, not just the name.
+        let label = MenuPresentation.clusterLabel(result.clusters[0])
+        XCTAssertTrue(label.contains("vhm-lab"), "keeps the name, got \(label)")
+        XCTAssertTrue(label.contains("no VPN server installed"), "must say why it is not working, got \(label)")
+    }
+
+    func testAWorkingConnectionIsLabelledPlainly() throws {
+        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"vhm-lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}] }"#.utf8)
+        let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+
+        XCTAssertTrue(result.hasWorkingConnection)
+        XCTAssertFalse(result.clusters[0].isDeadConnection)
+        XCTAssertEqual(MenuPresentation.clusterLabel(result.clusters[0]), "vhm-lab (g4v)")
     }
 
     @MainActor
@@ -41,8 +75,26 @@ final class ModelTests: XCTestCase {
         store.errorMessage = "problem"
         XCTAssertEqual(store.menuBarState, .attention)
         store.errorMessage = nil
-        store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#.utf8))
+        // Running with a cluster that is genuinely up is the ONLY thing that earns the connected
+        // icon. The tunnel being up carries no promise on its own.
+        store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#.utf8))
         XCTAssertEqual(store.menuBarState, .connected)
+    }
+
+    /*
+     The icon half of the same defect. `running` means the tunnel interface is up; it says nothing
+     about whether any cluster is on the other side. Showing the connected icon for a tunnel that
+     reaches nothing is the menu bar making a claim it cannot support.
+     */
+    @MainActor
+    func testMenuBarDoesNotClaimConnectedWhenNothingIsReachable() {
+        let store = StateStore()
+
+        store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"lab","connected":true,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}]}"#.utf8))
+        XCTAssertEqual(store.menuBarState, .attention, "connected to a cluster that routes nothing is a problem, not a connection")
+
+        store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#.utf8))
+        XCTAssertNotEqual(store.menuBarState, .connected, "a tunnel connected to no cluster is not a connection")
     }
 
     @MainActor

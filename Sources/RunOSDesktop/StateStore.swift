@@ -26,8 +26,15 @@ final class StateStore: ObservableObject {
         if isBusy || errorMessage != nil || cliOutdated || cliStatus?.vpnAccountMismatch == true || vpnStatus?.session.loginRequired == true {
             return .attention
         }
-        if vpnStatus?.running == true {
+        // `running` is only the tunnel interface. The connected icon is a claim that the VPN is
+        // carrying something, so it needs a cluster that is connected AND reachable. A tunnel that
+        // is up while every connected cluster is dead is the defect this guards: it looked
+        // connected and reached nothing.
+        if vpnStatus?.hasWorkingConnection == true {
             return .connected
+        }
+        if vpnStatus?.running == true {
+            return .attention
         }
         return .off
     }

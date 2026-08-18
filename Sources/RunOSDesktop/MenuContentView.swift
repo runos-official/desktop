@@ -6,6 +6,22 @@ enum MenuPresentation {
         let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return displayName.isEmpty ? cid : "\(displayName) (\(cid))"
     }
+
+    /*
+     The label a person reads in the menu, carrying the trouble when there is any.
+
+     A dead connection used to render as an ordinary ticked toggle, which asserted a working tunnel
+     over a cluster that routes nothing. The reason is the whole explanation, so it goes in the
+     label rather than somewhere the person has to go looking.
+     */
+    static func clusterLabel(_ cluster: VPNCluster) -> String {
+        let base = clusterLabel(name: cluster.name, cid: cluster.cid)
+        guard cluster.isDeadConnection else { return base }
+        let reason = (cluster.reason ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return reason.isEmpty
+            ? "\(base) — not connected"
+            : "\(base) — not connected: \(reason)"
+    }
 }
 
 struct MenuContentView: View {
@@ -70,7 +86,7 @@ struct MenuContentView: View {
                 } else {
                     let connectedClusterCount = vpn.connectableClusters.filter(\.connected).count
                     ForEach(vpn.connectableClusters) { cluster in
-                        let clusterLabel = MenuPresentation.clusterLabel(name: cluster.name, cid: cluster.cid)
+                        let clusterLabel = MenuPresentation.clusterLabel(cluster)
                         Toggle(isOn: Binding(
                             get: { cluster.connected },
                             set: { _ in

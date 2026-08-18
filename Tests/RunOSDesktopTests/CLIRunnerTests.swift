@@ -212,7 +212,10 @@ final class CLIRunnerTests: XCTestCase {
             "--version": "__DELAY__dev-2026-08-17T11:42:49Z",
             "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
             "account list --json": #"{"schemaVersion":1,"accounts":[]}"#,
-            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#
+            // A genuinely working cluster, not just a tunnel that is up: the connected icon now
+            // requires a cluster that is connected AND reachable. This test is about activity
+            // during the final refresh, so the fixture is corrected rather than the assertion.
+            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#
         ], delayMarker: marker)
         defer {
             try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
