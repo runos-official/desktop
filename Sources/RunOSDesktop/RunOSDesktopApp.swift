@@ -6,6 +6,7 @@ import ServiceManagement
 struct RunOSDesktopApp: App {
     @StateObject private var coordinator: RefreshCoordinator
     @StateObject private var loginItem = LoginItemController()
+    @StateObject private var startupConnect = StartupConnectController()
 
     init() {
         if CommandLine.arguments.contains("--unregister-login-item") {
@@ -24,11 +25,17 @@ struct RunOSDesktopApp: App {
         let coordinator = RefreshCoordinator(store: store, runner: runner)
         _coordinator = StateObject(wrappedValue: coordinator)
         coordinator.start()
+        // Connect-at-startup, if the person asked for it. Read straight from the store rather than
+        // through the StateObject: property wrappers are not available until the body runs, and
+        // this is the one moment the preference exists for.
+        if StartupConnectController().isEnabled {
+            coordinator.connectVPNAtStartup()
+        }
     }
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContentView(coordinator: coordinator, loginItem: loginItem)
+            MenuContentView(coordinator: coordinator, loginItem: loginItem, startupConnect: startupConnect)
         } label: {
             MenuBarGlyphView(
                 state: coordinator.store.menuBarState,

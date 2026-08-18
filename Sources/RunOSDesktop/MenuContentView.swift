@@ -54,6 +54,7 @@ enum MenuPresentation {
 struct MenuContentView: View {
     @ObservedObject var coordinator: RefreshCoordinator
     @ObservedObject var loginItem: LoginItemController
+    @ObservedObject var startupConnect: StartupConnectController
 
     private var store: StateStore { coordinator.store }
 
@@ -62,7 +63,6 @@ struct MenuContentView: View {
             Group {
                 statusMessages
                 vpnMenu
-                accountMenu
                 Divider()
                 actionItems
             }
@@ -177,39 +177,16 @@ struct MenuContentView: View {
     }
 
     @ViewBuilder
-    private var accountMenu: some View {
-        Menu("Account") {
-            ForEach(store.accounts) { account in
-                Button {
-                    coordinator.perform(
-                        DesktopCommands.switchAccount(account.accountId),
-                        message: "Authenticating \(account.accountId)…",
-                        cancellable: true
-                    )
-                } label: {
-                    Label(account.accountId, systemImage: account.active ? "checkmark" : "person.crop.circle")
-                }
-            }
-            if !store.accounts.isEmpty {
-                Divider()
-            }
-            Button("Add Account…") {
-                coordinator.perform(
-                    ["account", "add", "--json"],
-                    message: "Waiting for browser authentication…",
-                    cancellable: true
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
     private var actionItems: some View {
         Group {
             Button(store.updateActionTitle) { coordinator.updateRunOS() }
             Toggle("Launch at Login", isOn: Binding(
                 get: { loginItem.isEnabled },
                 set: { loginItem.setEnabled($0) }
+            ))
+            Toggle("Connect VPN at Startup", isOn: Binding(
+                get: { startupConnect.isEnabled },
+                set: { startupConnect.setEnabled($0) }
             ))
             if let error = loginItem.errorMessage {
                 Text(error)

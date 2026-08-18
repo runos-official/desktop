@@ -111,18 +111,20 @@ final class CLIRunnerTests: XCTestCase {
 
     @MainActor
     func testCoordinatorPreservesDevelopmentCapabilityError() async throws {
+        // `status --json` is deliberately absent, so the fake CLI refuses it. It used to be
+        // `account list`, which the coordinator no longer runs at all now that the account
+        // submenu is gone; the subject of the test is unchanged, only the command it fails on.
         let executable = try makeFakeCLI(commands: [
             "--version": "dev-2026-08-17T11:42:49Z",
-            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
             "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#
-        ], missingMessage: "account list is unavailable")
+        ], missingMessage: "status is unavailable")
         defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
         let store = StateStore()
         let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
 
         await coordinator.refresh()
 
-        XCTAssertEqual(store.errorMessage, "account list is unavailable")
+        XCTAssertEqual(store.errorMessage, "status is unavailable")
     }
 
     @MainActor

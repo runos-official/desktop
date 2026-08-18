@@ -4,7 +4,6 @@ import Foundation
 @MainActor
 final class StateStore: ObservableObject {
     @Published var cliStatus: CLIStatus?
-    @Published var accounts: [AccountEntry] = []
     @Published var vpnStatus: VPNStatus?
     @Published var errorMessage: String?
     @Published var operationMessage: String?

@@ -1,10 +1,17 @@
 enum DesktopCommands {
-    static func switchAccount(_ accountId: String) -> [String] {
-        ["account", "switch", accountId, "--json"]
-    }
-
     static func setVPN(enabled: Bool) -> [String] {
         ["vpn", enabled ? "up" : "down", "--json"]
+    }
+
+    /*
+     The unattended connect run at startup.
+
+     `--non-interactive` is the whole difference from `setVPN(enabled: true)`: a browser window
+     appearing on its own at login is worse than staying disconnected, so this fails cleanly when
+     a fresh sign-in is genuinely needed and leaves the person to do it when they choose.
+    */
+    static func connectVPNAtStartup() -> [String] {
+        ["vpn", "up", "--non-interactive", "--json"]
     }
 
     static func setCluster(_ cid: String, connected: Bool) -> [String] {

@@ -59,13 +59,10 @@ final class RefreshCoordinator: ObservableObject {
                 return
             }
             let statusResult = try await runner.run(["status", "--json"])
-            let accountsResult = try await runner.run(["account", "list", "--json"])
             let vpnResult = try? await runner.run(["vpn", "status", "--json"])
             let status = try statusResult.decode(CLIStatus.self)
-            let accounts = try accountsResult.decode(AccountListResult.self)
             let vpn = try? vpnResult?.decode(VPNStatus.self)
             update(\.cliStatus, to: status)
-            update(\.accounts, to: accounts.accounts)
             update(\.vpnStatus, to: vpn)
             update(\.errorMessage, to: status.authError)
         } catch {
@@ -112,6 +109,18 @@ final class RefreshCoordinator: ObservableObject {
         store.operationMessage = store.cancellingOperationMessage ?? "Cancelling…"
         store.canCancelOperation = false
         actionTask?.cancel()
+    }
+
+    /*
+     The connect the app performs on its own at startup, when the person asked for it.
+
+     Not cancellable, because there is nobody at the menu to cancel it, and it fails rather than
+     opening a browser (see DesktopCommands.connectVPNAtStartup). A failure lands in the usual
+     error line, which is right: they asked for a connection and did not get one, and the CLI's
+     sentence says what is missing.
+    */
+    func connectVPNAtStartup() {
+        perform(DesktopCommands.connectVPNAtStartup(), message: "Connecting VPN…")
     }
 
     func setVPN(enabled: Bool) {

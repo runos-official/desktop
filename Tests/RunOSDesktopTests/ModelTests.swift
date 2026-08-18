@@ -4,14 +4,6 @@ import XCTest
 @testable import RunOSDesktop
 
 final class ModelTests: XCTestCase {
-    func testAccountListDecoder() throws {
-        let data = Data(#"{"schemaVersion":1,"accounts":[{"accountId":"acct","active":true,"addedAt":"2026-08-01T00:00:00Z","lastUsedAt":"2026-08-02T00:00:00Z","vpnIdentityPresent":true,"vpnSessionPresent":false}]}"#.utf8)
-        let result = try JSONDecoder.runOS.decode(AccountListResult.self, from: data)
-        XCTAssertEqual(result.schemaVersion, 1)
-        XCTAssertEqual(result.accounts.first?.accountId, "acct")
-        XCTAssertTrue(result.accounts.first?.active == true)
-    }
-
     func testCLIStatusDecoderKeepsCompanyName() throws {
         let data = Data(#"{"schemaVersion":1,"authenticated":true,"accountId":"acct","companyName":"Example Company"}"#.utf8)
         let result = try JSONDecoder.runOS.decode(CLIStatus.self, from: data)
@@ -108,6 +100,46 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(message.isEmpty)
     }
 
+    /*
+     Connect-at-startup, which replaces the account submenu.
+
+     The preference has to survive a quit and a reboot, since its whole purpose is to act at login
+     when nobody is watching. It defaults OFF: bringing a tunnel up on a machine is not something
+     to start doing to somebody because they installed an update.
+     */
+    @MainActor
+    func testConnectAtStartupIsOffUntilItIsChosen() {
+        let defaults = UserDefaults(suiteName: "startup-off-\(UUID().uuidString)")!
+        let controller = StartupConnectController(defaults: defaults)
+
+        XCTAssertFalse(controller.isEnabled)
+    }
+
+    @MainActor
+    func testConnectAtStartupIsRemembered() {
+        let suite = "startup-remembered-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        StartupConnectController(defaults: defaults).setEnabled(true)
+
+        // A brand new controller over the same store is the next launch.
+        XCTAssertTrue(StartupConnectController(defaults: defaults).isEnabled)
+
+        StartupConnectController(defaults: defaults).setEnabled(false)
+        XCTAssertFalse(StartupConnectController(defaults: defaults).isEnabled)
+    }
+
+    /*
+     What the app runs at startup, and the one thing it must never do: open a browser.
+
+     A sign-in window appearing on its own at login is worse than staying disconnected, so the
+     startup attempt is non-interactive and fails cleanly when a sign-in is genuinely needed.
+     */
+    func testStartupConnectNeverOpensABrowser() {
+        let command = DesktopCommands.connectVPNAtStartup()
+
+        XCTAssertEqual(command, ["vpn", "up", "--non-interactive", "--json"])
+    }
+
     @MainActor
     func testMenuBarStateDerivation() {
         let store = StateStore()
@@ -164,7 +196,6 @@ final class ModelTests: XCTestCase {
     }
 
     func testCommandConstruction() {
-        XCTAssertEqual(DesktopCommands.switchAccount("acct"), ["account", "switch", "acct", "--json"])
         XCTAssertEqual(DesktopCommands.setVPN(enabled: false), ["vpn", "down", "--json"])
         XCTAssertEqual(DesktopCommands.setCluster("cid", connected: false), ["vpn", "connect", "cid", "--json"])
         XCTAssertEqual(

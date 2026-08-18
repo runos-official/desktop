@@ -11,23 +11,6 @@ struct CLIStatus: Decodable, Equatable, Sendable {
     let authError: String?
 }
 
-struct AccountListResult: Decodable, Equatable, Sendable {
-    let schemaVersion: Int
-    let accounts: [AccountEntry]
-}
-
-struct AccountEntry: Decodable, Equatable, Identifiable, Sendable {
-    let accountId: String
-    let active: Bool
-    let addedAt: String
-    let lastUsedAt: String
-    let vpnIdentityPresent: Bool
-    let vpnSessionPresent: Bool
-    let vpnSessionExpiresAt: Date?
-
-    var id: String { accountId }
-}
-
 struct VPNStatus: Decodable, Equatable, Sendable {
     let schemaVersion: Int?
     let running: Bool
