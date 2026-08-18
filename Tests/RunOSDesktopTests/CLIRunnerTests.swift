@@ -274,6 +274,41 @@ final class CLIRunnerTests: XCTestCase {
     }
 
     /*
+     Reported after the account-follow shipped: "even though i don't have the connect at startup
+     option selected, i seem to be connected".
+
+     `vpn up` signs in AND brings the tunnel up, so following the account turned the VPN ON for a
+     person who had not asked for it. Connecting is a decision they make, through the Connect
+     button or the startup preference, and never a side effect of the app tidying its own state.
+
+     With the VPN down there is nothing to follow anyway: a tunnel that is not running is not
+     showing anybody the wrong clusters.
+    */
+    @MainActor
+    func testFollowingTheAccountNeverTurnsTheVPNOn() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: "noup-\(UUID().uuidString)")
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"rjwrn","vpnAccountId":"sjnnz","vpnAccountMismatch":true}"#,
+            // The tunnel is DOWN.
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
+            "vpn up --non-interactive --json": "__COUNT__"
+        ], countMarker: marker)
+        defer {
+            try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: marker)
+        }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        let runs = (try? String(contentsOf: marker, encoding: .utf8))?.filter { $0 == "x" }.count ?? 0
+        XCTAssertEqual(runs, 0, "a VPN that is down must be left down")
+        XCTAssertFalse(store.vpnSignInRequired, "and nothing is asked for either")
+    }
+
+    /*
      The one case the app genuinely cannot resolve: Conductor wants a fresh sign-in, and an
      unattended switch may not open a browser. Only then is the person asked, and what they are
      asked for is a sign-in, never to reconcile two accounts.

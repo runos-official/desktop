@@ -68,7 +68,7 @@ final class RefreshCoordinator: ObservableObject {
             update(\.cliStatus, to: status)
             update(\.vpnStatus, to: vpn)
             update(\.errorMessage, to: status.authError)
-            await followCLIAccount(status)
+            await followCLIAccount(status, vpn: vpn)
         } catch {
             update(\.errorMessage, to: error.localizedDescription)
         }
@@ -82,12 +82,21 @@ final class RefreshCoordinator: ObservableObject {
      app can fix itself; which is exactly what it now does. `vpn up --non-interactive` is silent
      when the sign-in is recent enough, and after an account switch it usually is.
 
-     ONCE PER ACCOUNT, not once per poll: a person whose sign-in has genuinely expired would
+     ONLY WHILE THE TUNNEL IS UP, and once per account rather than once per poll: a person whose sign-in has genuinely expired would
      otherwise have this run against Conductor every few seconds for as long as the menu is open.
      A failure is not an error banner either. It means one thing a person can act on, so it sets
      the sign-in prompt and nothing else.
     */
-    private func followCLIAccount(_ status: CLIStatus) async {
+    private func followCLIAccount(_ status: CLIStatus, vpn: VPNStatus?) async {
+        // Only ever while the tunnel is ALREADY up. `vpn up` signs in AND connects, so following
+        // the account on a stopped VPN turned it on for someone who never asked. Connecting is
+        // their decision (the Connect button, or the startup preference), never a side effect of
+        // the app tidying its own state. A VPN that is down is also showing nobody anything wrong.
+        guard vpn?.running == true else {
+            switchAttemptedForAccount = nil
+            update(\.vpnSignInRequired, to: false)
+            return
+        }
         guard status.vpnAccountMismatch == true, let account = status.accountId else {
             switchAttemptedForAccount = nil
             update(\.vpnSignInRequired, to: false)
