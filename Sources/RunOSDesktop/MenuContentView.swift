@@ -14,6 +14,33 @@ enum MenuPresentation {
      over a cluster that routes nothing. The reason is the whole explanation, so it goes in the
      label rather than somewhere the person has to go looking.
      */
+    /*
+     What a person is told when the CLI and the VPN are on different accounts.
+
+     The old text was "Account mismatch: CLI sjnnz, VPN rjwrn" followed by "Run 'runos vpn up' to
+     synchronize the VPN account". It named a state without its consequence and then asked the
+     person to go and type a command the app can run itself.
+
+     The consequence is the part that matters: the VPN, and every cluster listed under it, belongs
+     to the other account. Until that is said, someone reading this menu is looking at another
+     account's clusters and has no way to know.
+     */
+    static func accountMismatchMessage(cliAccount: String?, vpnAccount: String?) -> String {
+        let cli = accountName(cliAccount)
+        let vpn = accountName(vpnAccount)
+        return "You are signed in to \(cli), but the VPN is still signed in to \(vpn). The clusters below belong to \(vpn), not \(cli)."
+    }
+
+    /// The button that fixes it, named for what it does rather than for the state it clears.
+    static func accountMismatchActionTitle(cliAccount: String?) -> String {
+        "Switch the VPN to \(accountName(cliAccount))"
+    }
+
+    private static func accountName(_ id: String?) -> String {
+        let trimmed = (id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "another account" : trimmed
+    }
+
     static func clusterLabel(_ cluster: VPNCluster) -> String {
         let base = clusterLabel(name: cluster.name, cid: cluster.cid)
         guard cluster.isDeadConnection else { return base }
@@ -67,10 +94,21 @@ struct MenuContentView: View {
         }
         if store.cliStatus?.vpnAccountMismatch == true {
             Label(
-                "Account mismatch: CLI \(store.activeAccountId ?? "unknown"), VPN \(store.cliStatus?.vpnAccountId ?? "unknown")",
+                MenuPresentation.accountMismatchMessage(
+                    cliAccount: store.activeAccountId,
+                    vpnAccount: store.cliStatus?.vpnAccountId
+                ),
                 systemImage: "exclamationmark.triangle"
             )
-            Text("Run 'runos vpn up' to synchronize the VPN account.")
+            // A button, not an instruction. `vpn up` is silent when the sign-in is recent enough,
+            // which after an account switch it usually is; when it is not, the person is already
+            // in the loop because they clicked.
+            Button(MenuPresentation.accountMismatchActionTitle(cliAccount: store.activeAccountId)) {
+                coordinator.perform(
+                    DesktopCommands.setVPN(enabled: true),
+                    message: "Switching the VPN account…"
+                )
+            }
         }
         if let error = store.errorMessage {
             Label(error, systemImage: "exclamationmark.triangle")
@@ -81,6 +119,14 @@ struct MenuContentView: View {
     private var vpnMenu: some View {
         Menu("VPN") {
             if let vpn = store.vpnStatus, vpn.running {
+                if store.cliStatus?.vpnAccountMismatch == true {
+                    // Without this the list reads as the current account's clusters. It is not.
+                    Text(MenuPresentation.accountMismatchMessage(
+                        cliAccount: store.activeAccountId,
+                        vpnAccount: store.cliStatus?.vpnAccountId
+                    ))
+                    Divider()
+                }
                 if vpn.connectableClusters.isEmpty {
                     Text("No VPN clusters available")
                 } else {

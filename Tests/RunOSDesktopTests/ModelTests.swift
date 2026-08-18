@@ -68,6 +68,46 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(MenuPresentation.clusterLabel(result.clusters[0]), "vhm-lab (g4v)")
     }
 
+    /*
+     Switching accounts left the menu showing another account's VPN and telling the person to go
+     and type a command:
+
+         Account mismatch: CLI sjnnz, VPN rjwrn
+         Run 'runos vpn up' to synchronize the VPN account.
+
+     "Synchronize the VPN account" is jargon for something the app can simply do, and neither line
+     says the thing that actually matters: the clusters listed below belong to the OTHER account,
+     so what you are looking at is not yours.
+     */
+    func testAccountMismatchIsExplainedInPlainWords() {
+        let message = MenuPresentation.accountMismatchMessage(cliAccount: "sjnnz", vpnAccount: "rjwrn")
+
+        XCTAssertTrue(message.contains("sjnnz"), "names the account you are on, got \(message)")
+        XCTAssertTrue(message.contains("rjwrn"), "names the account the VPN is on, got \(message)")
+        // The consequence, which is the whole point: what is on screen is the wrong account's.
+        XCTAssertTrue(
+            message.lowercased().contains("belong"),
+            "must say whose clusters are being shown, got \(message)"
+        )
+        // Not jargon, and not an instruction to go and type something: there is a button for it.
+        XCTAssertFalse(message.lowercased().contains("synchron"), "jargon, got \(message)")
+        XCTAssertFalse(message.contains("runos vpn up"), "the app does this, it does not ask, got \(message)")
+    }
+
+    func testAccountMismatchButtonSaysWhatItWillDo() {
+        let title = MenuPresentation.accountMismatchActionTitle(cliAccount: "sjnnz")
+
+        XCTAssertTrue(title.contains("sjnnz"), "names the account it will switch the VPN to, got \(title)")
+        XCTAssertFalse(title.lowercased().contains("synchron"), "jargon, got \(title)")
+    }
+
+    func testAccountMismatchHandlesAnUnknownAccountWithoutSayingNil() {
+        let message = MenuPresentation.accountMismatchMessage(cliAccount: nil, vpnAccount: nil)
+
+        XCTAssertFalse(message.contains("nil"), "got \(message)")
+        XCTAssertFalse(message.isEmpty)
+    }
+
     @MainActor
     func testMenuBarStateDerivation() {
         let store = StateStore()
