@@ -22,6 +22,9 @@ final class RefreshCoordinator: ObservableObject {
         store.cliAvailable = runner != nil
     }
 
+    /// The account the VPN switch was last attempted for, so it is tried once and not every poll.
+    private var switchAttemptedForAccount: String?
+
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
@@ -65,8 +68,38 @@ final class RefreshCoordinator: ObservableObject {
             update(\.cliStatus, to: status)
             update(\.vpnStatus, to: vpn)
             update(\.errorMessage, to: status.authError)
+            await followCLIAccount(status)
         } catch {
             update(\.errorMessage, to: error.localizedDescription)
+        }
+    }
+
+    /*
+     Keep the VPN on the account the person is signed in to, without telling them about it.
+
+     The app used to report "the CLI is on rjwrn, the VPN is on sjnnz" and offer a button. That
+     asks a person to reconcile two account states they never knew existed, to fix something the
+     app can fix itself; which is exactly what it now does. `vpn up --non-interactive` is silent
+     when the sign-in is recent enough, and after an account switch it usually is.
+
+     ONCE PER ACCOUNT, not once per poll: a person whose sign-in has genuinely expired would
+     otherwise have this run against Conductor every few seconds for as long as the menu is open.
+     A failure is not an error banner either. It means one thing a person can act on, so it sets
+     the sign-in prompt and nothing else.
+    */
+    private func followCLIAccount(_ status: CLIStatus) async {
+        guard status.vpnAccountMismatch == true, let account = status.accountId else {
+            switchAttemptedForAccount = nil
+            update(\.vpnSignInRequired, to: false)
+            return
+        }
+        guard switchAttemptedForAccount != account, let runner else { return }
+        switchAttemptedForAccount = account
+        do {
+            _ = try await runner.run(DesktopCommands.connectVPNAtStartup())
+            update(\.vpnSignInRequired, to: false)
+        } catch {
+            update(\.vpnSignInRequired, to: true)
         }
     }
 

@@ -25,15 +25,8 @@ enum MenuPresentation {
      to the other account. Until that is said, someone reading this menu is looking at another
      account's clusters and has no way to know.
      */
-    static func accountMismatchMessage(cliAccount: String?, vpnAccount: String?) -> String {
-        let cli = accountName(cliAccount)
-        let vpn = accountName(vpnAccount)
-        return "You are signed in to \(cli), but the VPN is still signed in to \(vpn). The clusters below belong to \(vpn), not \(cli)."
-    }
-
-    /// The button that fixes it, named for what it does rather than for the state it clears.
-    static func accountMismatchActionTitle(cliAccount: String?) -> String {
-        "Switch the VPN to \(accountName(cliAccount))"
+    static func signInPrompt(account: String?) -> String {
+        "Sign in to use the VPN with \(accountName(account))."
     }
 
     private static func accountName(_ id: String?) -> String {
@@ -92,22 +85,13 @@ struct MenuContentView: View {
         if let operation = store.operationMessage {
             Label(operation, systemImage: "clock")
         }
-        if store.cliStatus?.vpnAccountMismatch == true {
-            Label(
-                MenuPresentation.accountMismatchMessage(
-                    cliAccount: store.activeAccountId,
-                    vpnAccount: store.cliStatus?.vpnAccountId
-                ),
-                systemImage: "exclamationmark.triangle"
-            )
-            // A button, not an instruction. `vpn up` is silent when the sign-in is recent enough,
-            // which after an account switch it usually is; when it is not, the person is already
-            // in the loop because they clicked.
-            Button(MenuPresentation.accountMismatchActionTitle(cliAccount: store.activeAccountId)) {
-                coordinator.perform(
-                    DesktopCommands.setVPN(enabled: true),
-                    message: "Switching the VPN account…"
-                )
+        if store.vpnSignInRequired {
+            // The app has already tried and cannot do this one: Conductor wants a fresh sign-in
+            // and an unattended run may not open a browser. So this is the only thing said, and
+            // it is a thing to do rather than a state to explain.
+            Label(MenuPresentation.signInPrompt(account: store.activeAccountId), systemImage: "person.badge.key")
+            Button("Sign In") {
+                coordinator.setVPN(enabled: true)
             }
         }
         if let error = store.errorMessage {
@@ -119,14 +103,6 @@ struct MenuContentView: View {
     private var vpnMenu: some View {
         Menu("VPN") {
             if let vpn = store.vpnStatus, vpn.running {
-                if store.cliStatus?.vpnAccountMismatch == true {
-                    // Without this the list reads as the current account's clusters. It is not.
-                    Text(MenuPresentation.accountMismatchMessage(
-                        cliAccount: store.activeAccountId,
-                        vpnAccount: store.cliStatus?.vpnAccountId
-                    ))
-                    Divider()
-                }
                 if vpn.connectableClusters.isEmpty {
                     Text("No VPN clusters available")
                 } else {

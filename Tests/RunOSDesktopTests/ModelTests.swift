@@ -61,83 +61,28 @@ final class ModelTests: XCTestCase {
     }
 
     /*
-     Switching accounts left the menu showing another account's VPN and telling the person to go
-     and type a command:
+     The only thing an account difference may ever put in front of a person.
 
-         Account mismatch: CLI sjnnz, VPN rjwrn
-         Run 'runos vpn up' to synchronize the VPN account.
+     The app follows the account you are signed in to by itself. When Conductor wants a fresh
+     sign-in it cannot, and then this is said: a thing to do, naming the account it is for, and
+     never the two-account state behind it.
+    */
+    func testSignInPromptAsksForTheOneThingAPersonCanDo() {
+        let prompt = MenuPresentation.signInPrompt(account: "rjwrn")
 
-     "Synchronize the VPN account" is jargon for something the app can simply do, and neither line
-     says the thing that actually matters: the clusters listed below belong to the OTHER account,
-     so what you are looking at is not yours.
-     */
-    func testAccountMismatchIsExplainedInPlainWords() {
-        let message = MenuPresentation.accountMismatchMessage(cliAccount: "sjnnz", vpnAccount: "rjwrn")
-
-        XCTAssertTrue(message.contains("sjnnz"), "names the account you are on, got \(message)")
-        XCTAssertTrue(message.contains("rjwrn"), "names the account the VPN is on, got \(message)")
-        // The consequence, which is the whole point: what is on screen is the wrong account's.
-        XCTAssertTrue(
-            message.lowercased().contains("belong"),
-            "must say whose clusters are being shown, got \(message)"
-        )
-        // Not jargon, and not an instruction to go and type something: there is a button for it.
-        XCTAssertFalse(message.lowercased().contains("synchron"), "jargon, got \(message)")
-        XCTAssertFalse(message.contains("runos vpn up"), "the app does this, it does not ask, got \(message)")
+        XCTAssertTrue(prompt.contains("rjwrn"), "names the account it is for, got \(prompt)")
+        XCTAssertTrue(prompt.lowercased().contains("sign in"), "asks for a sign-in, got \(prompt)")
+        // None of the internals the old message leaked.
+        XCTAssertFalse(prompt.lowercased().contains("mismatch"), "got \(prompt)")
+        XCTAssertFalse(prompt.lowercased().contains("cli"), "got \(prompt)")
+        XCTAssertFalse(prompt.lowercased().contains("still signed in"), "got \(prompt)")
     }
 
-    func testAccountMismatchButtonSaysWhatItWillDo() {
-        let title = MenuPresentation.accountMismatchActionTitle(cliAccount: "sjnnz")
+    func testSignInPromptSurvivesAnUnknownAccount() {
+        let prompt = MenuPresentation.signInPrompt(account: nil)
 
-        XCTAssertTrue(title.contains("sjnnz"), "names the account it will switch the VPN to, got \(title)")
-        XCTAssertFalse(title.lowercased().contains("synchron"), "jargon, got \(title)")
-    }
-
-    func testAccountMismatchHandlesAnUnknownAccountWithoutSayingNil() {
-        let message = MenuPresentation.accountMismatchMessage(cliAccount: nil, vpnAccount: nil)
-
-        XCTAssertFalse(message.contains("nil"), "got \(message)")
-        XCTAssertFalse(message.isEmpty)
-    }
-
-    /*
-     Connect-at-startup, which replaces the account submenu.
-
-     The preference has to survive a quit and a reboot, since its whole purpose is to act at login
-     when nobody is watching. It defaults OFF: bringing a tunnel up on a machine is not something
-     to start doing to somebody because they installed an update.
-     */
-    @MainActor
-    func testConnectAtStartupIsOffUntilItIsChosen() {
-        let defaults = UserDefaults(suiteName: "startup-off-\(UUID().uuidString)")!
-        let controller = StartupConnectController(defaults: defaults)
-
-        XCTAssertFalse(controller.isEnabled)
-    }
-
-    @MainActor
-    func testConnectAtStartupIsRemembered() {
-        let suite = "startup-remembered-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        StartupConnectController(defaults: defaults).setEnabled(true)
-
-        // A brand new controller over the same store is the next launch.
-        XCTAssertTrue(StartupConnectController(defaults: defaults).isEnabled)
-
-        StartupConnectController(defaults: defaults).setEnabled(false)
-        XCTAssertFalse(StartupConnectController(defaults: defaults).isEnabled)
-    }
-
-    /*
-     What the app runs at startup, and the one thing it must never do: open a browser.
-
-     A sign-in window appearing on its own at login is worse than staying disconnected, so the
-     startup attempt is non-interactive and fails cleanly when a sign-in is genuinely needed.
-     */
-    func testStartupConnectNeverOpensABrowser() {
-        let command = DesktopCommands.connectVPNAtStartup()
-
-        XCTAssertEqual(command, ["vpn", "up", "--non-interactive", "--json"])
+        XCTAssertFalse(prompt.contains("nil"), "got \(prompt)")
+        XCTAssertFalse(prompt.isEmpty)
     }
 
     @MainActor

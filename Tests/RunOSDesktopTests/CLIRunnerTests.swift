@@ -243,17 +243,106 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertEqual(store.menuBarState, .connected)
     }
 
+    /*
+     The VPN follows the account you are on, without asking.
+
+     Reported as: "i still get this garbage which again makes no sense". The app was telling a
+     person that the CLI and the VPN were signed in to different accounts and asking them to
+     reconcile it with a button. That exposes two account states they never knew existed, to ask
+     them to fix something the app can fix itself.
+
+     A mismatch is now something the app resolves. It runs `vpn up --non-interactive`, which is
+     silent when the sign-in is recent enough, and the person sees nothing at all.
+    */
+    @MainActor
+    func testTheAppSwitchesTheVPNAccountItselfInsteadOfAsking() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"rjwrn","vpnAccountId":"sjnnz","vpnAccountMismatch":true}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#,
+            "vpn up --non-interactive --json": "{}"
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        // It ran, so nothing is put in front of the person: no sign-in prompt, no error.
+        XCTAssertFalse(store.vpnSignInRequired, "a switch it could perform must not be announced")
+        XCTAssertNil(store.errorMessage)
+    }
+
+    /*
+     The one case the app genuinely cannot resolve: Conductor wants a fresh sign-in, and an
+     unattended switch may not open a browser. Only then is the person asked, and what they are
+     asked for is a sign-in, never to reconcile two accounts.
+    */
+    @MainActor
+    func testASignInThatCannotBePerformedIsTheOnlyThingAsked() async throws {
+        // `vpn up --non-interactive --json` is absent, so the fake refuses it.
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"rjwrn","vpnAccountId":"sjnnz","vpnAccountMismatch":true}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#
+        ], missingMessage: "the VPN needs a fresh sign-in and this run may not open a browser")
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        XCTAssertTrue(store.vpnSignInRequired, "a switch it could not perform must be asked for")
+        // The failure is not an error banner: it is a thing to do, shown as a sign-in prompt.
+        XCTAssertNil(store.errorMessage)
+    }
+
+    /*
+     The attempt happens once per account, not on every poll.
+
+     Without this, a person whose sign-in has genuinely expired would have the app run `vpn up`
+     against Conductor every few seconds for as long as the menu bar is open.
+    */
+    @MainActor
+    func testTheSwitchIsNotRetriedOnEveryPoll() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: "switch-\(UUID().uuidString)")
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"rjwrn","vpnAccountId":"sjnnz","vpnAccountMismatch":true}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#,
+            "vpn up --non-interactive --json": "__COUNT__"
+        ], countMarker: marker)
+        defer {
+            try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: marker)
+        }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+        await coordinator.refresh()
+        await coordinator.refresh()
+
+        let runs = (try? String(contentsOf: marker, encoding: .utf8))?.filter { $0 == "x" }.count ?? 0
+        XCTAssertEqual(runs, 1, "the switch must be attempted once for the account, not every poll")
+    }
+
     private func makeFakeCLI(
         commands: [String: String],
         missingMessage: String = "unexpected command",
-        delayMarker: URL? = nil
+        delayMarker: URL? = nil,
+        countMarker: URL? = nil
     ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let executable = directory.appending(path: "fake-runos")
         var script = "#!/bin/sh\ncase \"$*\" in\n"
         for (arguments, output) in commands {
-            if output == "__WAIT__" {
+            if output == "__COUNT__", let countMarker {
+                // Appends one mark per invocation, so a test can count how often it ran.
+                let escapedCounter = countMarker.path.replacingOccurrences(of: "'", with: "'\\''")
+                script += "  '\(arguments)') printf 'x' >> '\(escapedCounter)'; printf '{}\\n' ;;\n"
+            } else if output == "__WAIT__" {
                 script += "  '\(arguments)') exec sleep 3 ;;\n"
             } else if output.hasPrefix("__DELAY__"), let delayMarker {
                 let delayedOutput = String(output.dropFirst("__DELAY__".count))
