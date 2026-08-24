@@ -103,6 +103,30 @@ if printf '%s\n' "$ADDED_LINES" | grep -nE "$SECRET_RE"; then
   fail "secret-shaped content exists in the release payload"
 fi
 
+# ---- Leak gate: internal identifiers (PUBLIC repo) -------------------------
+# The floor above covers CREDENTIAL shapes in the payload diff. This gate covers
+# the other half of the rule, INTERNAL IDENTIFIERS (lab machine names, account
+# ids, IP address literals), and it reads the WHOLE TRACKED TREE, not the diff,
+# because a public repo publishes the tree and not just the newest commits.
+#
+# The preflight above already proved the working tree is the dev tree and is
+# clean, so scanning the working tree scans exactly what is about to ship.
+#
+# It is a ratchet, not a blanket ban: findings already recorded in
+# scripts/leakcheck.baseline pass, anything NEW fails. That is deliberate. A
+# blanket ban on a repo that already carries published violations would block
+# every commit and get the gate switched off within a day.
+#
+# This gate CANNOT be skipped. The pre-commit hook in .githooks/ runs the same
+# checker over the staged diff and CAN be skipped with --no-verify, which is why
+# this one exists.
+step "Leak gate (public repo, whole tree)"
+if ! LEAK_OUTPUT="$(python3 "$REPO_ROOT/scripts/leakcheck.py" 2>&1)"; then
+  printf '%s\n' "$LEAK_OUTPUT" >&2
+  fail "leak gate failed (public repo): remove the identifiers above before releasing. Do not hand-edit scripts/leakcheck.baseline."
+fi
+printf ' ok %s\n' "$(printf '%s' "$LEAK_OUTPUT" | tail -1)"
+
 step "Run the release gates"
 make verify
 
