@@ -5,6 +5,7 @@ import Foundation
 final class StateStore: ObservableObject {
     @Published var cliStatus: CLIStatus?
     @Published var vpnStatus: VPNStatus?
+    @Published var traffic = TrafficSampler()
     @Published var errorMessage: String?
     @Published var operationMessage: String?
     @Published var canCancelOperation = false

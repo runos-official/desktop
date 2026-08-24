@@ -67,6 +67,9 @@ final class RefreshCoordinator: ObservableObject {
             let vpn = try? vpnResult?.decode(VPNStatus.self)
             update(\.cliStatus, to: status)
             update(\.vpnStatus, to: vpn)
+            if let vpn, vpn.running {
+                store.traffic.record(total: vpn.totalTrafficBytes)
+            }
             update(\.errorMessage, to: status.authError)
             await followCLIAccount(status, vpn: vpn)
         } catch {

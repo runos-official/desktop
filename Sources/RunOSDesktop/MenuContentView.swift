@@ -72,7 +72,9 @@ struct MenuContentView: View {
                     cliVersion: store.cliVersion,
                     accountId: store.activeAccountId,
                     companyName: store.cliStatus?.companyName,
-                    vpn: store.vpnStatus
+                    vpn: store.vpnStatus,
+                    trafficSlots: store.traffic.hourSlots(),
+                    trafficTotal: store.traffic.lastHourTotal
                 ))
             }
             Button("Quit RunOS Desktop") { NSApplication.shared.terminate(nil) }
@@ -168,6 +170,9 @@ struct AboutDetails: Equatable, Sendable {
     let companyName: String?
     /// A snapshot of the tunnel for the network stats; nil hides the section entirely.
     let vpn: VPNStatus?
+    /// The last hour of traffic in five-minute buckets, oldest first, with its total.
+    let trafficSlots: [Int64]
+    let trafficTotal: Int64
 }
 
 enum AboutLayout {
@@ -281,7 +286,7 @@ private struct AboutContentView: View {
     private func networkSection(_ vpn: VPNStatus) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             statRow("Tunnel", [vpn.interface, vpn.address].compactMap { $0 }.joined(separator: "  ·  "))
-            statRow("DNS", dnsSummary(vpn))
+            trafficChart
             ForEach(connectedClusters) { cluster in
                 Divider()
                 statRow(MenuPresentation.clusterLabel(name: cluster.name, cid: cluster.cid), cluster.endpoint ?? "—")
@@ -299,13 +304,33 @@ private struct AboutContentView: View {
         .frame(width: AboutLayout.contentWidth, alignment: .leading)
     }
 
-    private func dnsSummary(_ vpn: VPNStatus) -> String {
-        guard let dns = vpn.dns else { return "—" }
-        if dns.available {
-            return "private zones active" + (dns.mode.map { " (\($0))" } ?? "")
+    /*
+     The last hour, five minutes per bar, oldest on the left. Bars scale to the busiest bucket;
+     an idle hour renders as a flat baseline rather than nothing, so the chart's presence does
+     not depend on traffic.
+     */
+    private var trafficChart: some View {
+        let slots = details.trafficSlots
+        let peak = max(slots.max() ?? 0, 1)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(Array(slots.enumerated()), id: \.offset) { _, bytes in
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(bytes > 0 ? Color.accentColor : Color.secondary.opacity(0.25))
+                        .frame(height: max(2, CGFloat(bytes) / CGFloat(peak) * 36))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 36, alignment: .bottom)
+            HStack {
+                Text("Last hour")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(StatsFormatting.bytes(details.trafficTotal))
+            }
+            .font(.caption)
         }
-        let error = (dns.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return error.isEmpty ? "unavailable" : "unavailable: \(error)"
+        .padding(.vertical, 4)
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {

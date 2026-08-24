@@ -229,7 +229,9 @@ final class ModelTests: XCTestCase {
             cliVersion: "dev-build",
             accountId: "account-a",
             companyName: "Example Company",
-            vpn: nil
+            vpn: nil,
+            trafficSlots: [],
+            trafficTotal: 0
         )
 
         presenter.show(details)
@@ -318,5 +320,56 @@ extension ModelTests {
         XCTAssertEqual(StatsFormatting.handshake(Date(timeIntervalSince1970: 0), now: now), "never")
         XCTAssertEqual(StatsFormatting.handshake(now.addingTimeInterval(-42), now: now), "42s ago")
         XCTAssertEqual(StatsFormatting.handshake(now.addingTimeInterval(-7200), now: now), "2h ago")
+    }
+}
+
+extension ModelTests {
+    func testTrafficSamplerBucketsDeltasIntoFiveMinuteSlots() {
+        var sampler = TrafficSampler()
+        let base = Date(timeIntervalSince1970: 1_787_000_100) // inside some 5-minute bucket
+        sampler.record(total: 1000, at: base)                  // first sample only sets the floor
+        sampler.record(total: 1600, at: base.addingTimeInterval(30))
+        sampler.record(total: 1900, at: base.addingTimeInterval(60))
+        XCTAssertEqual(sampler.buckets.count, 1)
+        XCTAssertEqual(sampler.buckets[0].bytes, 900)
+        sampler.record(total: 2900, at: base.addingTimeInterval(400))
+        XCTAssertEqual(sampler.buckets.count, 2)
+        XCTAssertEqual(sampler.buckets[1].bytes, 1000)
+    }
+
+    func testTrafficSamplerSurvivesACounterReset() {
+        var sampler = TrafficSampler()
+        let base = Date(timeIntervalSince1970: 1_787_000_100)
+        sampler.record(total: 5000, at: base)
+        // The peer was re-added and WireGuard's counter started over: the new total IS the delta.
+        sampler.record(total: 300, at: base.addingTimeInterval(30))
+        XCTAssertEqual(sampler.buckets[0].bytes, 300)
+    }
+
+    func testTrafficSamplerSlotsAlignToTheWallClockWithGaps() {
+        var sampler = TrafficSampler()
+        let base = Date(timeIntervalSince1970: 1_787_000_100)
+        sampler.record(total: 0, at: base)
+        sampler.record(total: 500, at: base.addingTimeInterval(30))
+        // The Mac slept for twenty minutes; the next sample lands four buckets later.
+        let later = base.addingTimeInterval(20 * 60)
+        sampler.record(total: 900, at: later)
+        let slots = sampler.hourSlots(now: later)
+        XCTAssertEqual(slots.count, 12)
+        XCTAssertEqual(slots[11], 400)
+        XCTAssertEqual(slots[7], 500)
+        XCTAssertEqual(slots[8...10].reduce(0, +), 0)
+        XCTAssertEqual(sampler.hourSlots(now: later).reduce(0, +), 900)
+    }
+
+    func testTrafficSamplerKeepsOnlyAnHour() {
+        var sampler = TrafficSampler()
+        var clock = Date(timeIntervalSince1970: 1_787_000_100)
+        sampler.record(total: 0, at: clock)
+        for step in 1...20 {
+            clock = clock.addingTimeInterval(300)
+            sampler.record(total: Int64(step) * 100, at: clock)
+        }
+        XCTAssertEqual(sampler.buckets.count, TrafficSampler.capacity)
     }
 }

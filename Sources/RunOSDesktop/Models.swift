@@ -143,3 +143,74 @@ enum StatsFormatting {
         return "\(seconds / 86_400)d ago"
     }
 }
+
+/*
+ Traffic history for the About panel's last-hour bar chart.
+
+ Fed from the vpn status the app already polls (no extra process, no extra load): each poll
+ records the cumulative rx+tx total across every cluster, and the delta since the previous poll
+ lands in a wall-clock-aligned five-minute bucket. Twelve buckets make the hour. In memory only,
+ by design: the history lives as long as the app does.
+ */
+struct TrafficBucket: Equatable, Sendable {
+    let start: Date
+    var bytes: Int64
+}
+
+struct TrafficSampler: Equatable, Sendable {
+    static let bucketSeconds: TimeInterval = 300
+    static let capacity = 12
+
+    private(set) var buckets: [TrafficBucket] = []
+    private var lastTotal: Int64?
+
+    mutating func record(total: Int64, at now: Date = Date()) {
+        // A WireGuard counter resets when a peer is re-added (reconnect, server move). A total
+        // below the last one is that reset, and the bytes since it are the new total itself.
+        let delta: Int64
+        if let last = lastTotal {
+            delta = total >= last ? total - last : total
+        } else {
+            delta = 0
+        }
+        lastTotal = total
+        guard delta >= 0 else { return }
+        let start = Date(
+            timeIntervalSince1970: (now.timeIntervalSince1970 / Self.bucketSeconds).rounded(.down)
+                * Self.bucketSeconds
+        )
+        if let index = buckets.indices.last, buckets[index].start == start {
+            buckets[index].bytes += delta
+        } else {
+            buckets.append(TrafficBucket(start: start, bytes: delta))
+            if buckets.count > Self.capacity {
+                buckets.removeFirst(buckets.count - Self.capacity)
+            }
+        }
+    }
+
+    /*
+     The chart's twelve slots, oldest first, aligned to the wall clock so a gap (the Mac slept,
+     the app was quit) renders as empty bars rather than compressing time.
+     */
+    func hourSlots(now: Date = Date()) -> [Int64] {
+        let currentStart = (now.timeIntervalSince1970 / Self.bucketSeconds).rounded(.down) * Self.bucketSeconds
+        return (0..<Self.capacity).map { offset in
+            let slotStart = Date(
+                timeIntervalSince1970: currentStart - Double(Self.capacity - 1 - offset) * Self.bucketSeconds
+            )
+            return buckets.first(where: { $0.start == slotStart })?.bytes ?? 0
+        }
+    }
+
+    var lastHourTotal: Int64 {
+        hourSlots().reduce(0, +)
+    }
+}
+
+extension VPNStatus {
+    /// Cumulative rx+tx across every cluster, the number the traffic sampler tracks.
+    var totalTrafficBytes: Int64 {
+        clusters.reduce(0) { $0 + ($1.rxBytes ?? 0) + ($1.txBytes ?? 0) }
+    }
+}
