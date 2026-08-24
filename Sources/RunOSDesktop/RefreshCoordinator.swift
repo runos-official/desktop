@@ -168,7 +168,7 @@ final class RefreshCoordinator: ObservableObject {
     func setVPN(enabled: Bool) {
         perform(
             DesktopCommands.setVPN(enabled: enabled),
-            message: enabled ? "Connecting VPN…" : "Disconnecting VPN…",
+            message: enabled ? "Connecting VPN…" : "Signing out…",
             cancellable: enabled,
             cancelLabel: "Cancel Connection",
             cancellingMessage: "Cancelling connection…"

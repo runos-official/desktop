@@ -106,7 +106,6 @@ struct MenuContentView: View {
                 if vpn.connectableClusters.isEmpty {
                     Text("No VPN clusters available")
                 } else {
-                    let connectedClusterCount = vpn.connectableClusters.filter(\.connected).count
                     ForEach(vpn.connectableClusters) { cluster in
                         let clusterLabel = MenuPresentation.clusterLabel(cluster)
                         Toggle(isOn: Binding(
@@ -114,18 +113,11 @@ struct MenuContentView: View {
                             set: { _ in
                                 let command = DesktopCommands.toggleCluster(
                                     cluster.cid,
-                                    isConnected: cluster.connected,
-                                    connectedClusterCount: connectedClusterCount
+                                    isConnected: cluster.connected
                                 )
-                                let disconnectsVPN = command == DesktopCommands.setVPN(enabled: false)
-                                let message: String
-                                if disconnectsVPN {
-                                    message = "Disconnecting VPN…"
-                                } else if cluster.connected {
-                                    message = "Disconnecting \(clusterLabel)…"
-                                } else {
-                                    message = "Connecting \(clusterLabel)…"
-                                }
+                                let message = cluster.connected
+                                    ? "Disconnecting \(clusterLabel)…"
+                                    : "Connecting \(clusterLabel)…"
                                 coordinator.perform(command, message: message)
                             }
                         )) {
@@ -141,7 +133,9 @@ struct MenuContentView: View {
                     }
                 }
                 Divider()
-                Button("Disconnect") {
+                // The one action that ends the 24-hour session; the next connect opens the
+                // browser sign-in again. Cluster toggles above never do this.
+                Button("Sign Out") {
                     coordinator.setVPN(enabled: false)
                 }
             } else {

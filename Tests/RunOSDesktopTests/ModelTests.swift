@@ -143,13 +143,16 @@ final class ModelTests: XCTestCase {
     func testCommandConstruction() {
         XCTAssertEqual(DesktopCommands.setVPN(enabled: false), ["vpn", "down", "--json"])
         XCTAssertEqual(DesktopCommands.setCluster("cid", connected: false), ["vpn", "connect", "cid", "--json"])
+        // Disconnecting the LAST cluster must NOT end the session: 'down' here forced a fresh
+        // browser sign-in on every reconnect for a single-cluster account. Sign Out is the only
+        // command that ends the session.
         XCTAssertEqual(
-            DesktopCommands.toggleCluster("cid", isConnected: true, connectedClusterCount: 1),
-            ["vpn", "down", "--json"]
+            DesktopCommands.toggleCluster("cid", isConnected: true),
+            ["vpn", "disconnect", "cid", "--json"]
         )
         XCTAssertEqual(
-            DesktopCommands.toggleCluster("cid", isConnected: true, connectedClusterCount: 2),
-            ["vpn", "disconnect", "cid", "--json"]
+            DesktopCommands.toggleCluster("cid", isConnected: false),
+            ["vpn", "connect", "cid", "--json"]
         )
     }
 

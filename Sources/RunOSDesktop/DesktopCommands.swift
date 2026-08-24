@@ -18,10 +18,13 @@ enum DesktopCommands {
         ["vpn", connected ? "disconnect" : "connect", cid, "--json"]
     }
 
-    static func toggleCluster(_ cid: String, isConnected: Bool, connectedClusterCount: Int) -> [String] {
-        if isConnected, connectedClusterCount == 1 {
-            return setVPN(enabled: false)
-        }
-        return setCluster(cid, connected: isConnected)
+    /*
+     A cluster toggle NEVER ends the session. Disconnecting the last cluster used to run
+     `vpn down`, which ends the 24-hour session, so a single-cluster account paid a fresh
+     browser sign-in on every reconnect. The daemon keeps the tunnel and the session alive
+     with zero clusters connected; Sign Out (`vpn down`) is the one explicit way to end it.
+    */
+    static func toggleCluster(_ cid: String, isConnected: Bool) -> [String] {
+        setCluster(cid, connected: isConnected)
     }
 }
