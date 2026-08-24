@@ -75,6 +75,7 @@ struct VPNCluster: Decodable, Equatable, Identifiable, Sendable {
     // Stats for the About panel. All optional: an older CLI simply omits them.
     let endpoint: String?
     let resolver: String?
+    let zones: [String]?
     let rxBytes: Int64?
     let txBytes: Int64?
     let lastHandshake: Date?

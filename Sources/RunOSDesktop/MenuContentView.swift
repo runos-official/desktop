@@ -66,6 +66,10 @@ struct MenuContentView: View {
                 }
             }
             Divider()
+            Button("Connection Status") {
+                ConnectionStatusWindowController.shared.show(vpn: store.vpnStatus)
+            }
+            .disabled(store.vpnStatus?.running != true)
             Button("About RunOS Desktop") {
                 AboutPresenter.live.show(AboutDetails(
                     desktopVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development",

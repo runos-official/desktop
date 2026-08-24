@@ -373,3 +373,28 @@ extension ModelTests {
         XCTAssertEqual(sampler.buckets.count, TrafficSampler.capacity)
     }
 }
+
+extension ModelTests {
+    func testPingVerdictParsesAverageAndFailure() {
+        let ok = ConnectionDiagnostics.pingVerdict(
+            exitCode: 0,
+            output: "2 packets transmitted, 2 packets received, 0.0% packet loss\nround-trip min/avg/max/stddev = 1.177/1.377/1.577/nan ms\n"
+        )
+        XCTAssertTrue(ok.reachable)
+        XCTAssertEqual(ok.detail, "1.377 ms")
+        let dead = ConnectionDiagnostics.pingVerdict(exitCode: 2, output: "")
+        XCTAssertFalse(dead.reachable)
+        XCTAssertEqual(dead.detail, "no reply")
+    }
+
+    func testResolvedAddressesAndPrivacy() {
+        let output = "name: k8s.v6b.rjwrn.dev.runos.xyz\nip_address: 10.58.72.1\nip_address: 10.58.72.2\n"
+        XCTAssertEqual(ConnectionDiagnostics.resolvedAddresses(output), ["10.58.72.1", "10.58.72.2"])
+        XCTAssertEqual(ConnectionDiagnostics.resolvedAddresses("no such name\n"), [])
+        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("10.58.72.1"))
+        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("192.168.0.226"))
+        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("172.30.0.9"))
+        XCTAssertFalse(ConnectionDiagnostics.isPrivateIPv4("169.1.210.215"))
+        XCTAssertFalse(ConnectionDiagnostics.isPrivateIPv4("not-an-ip"))
+    }
+}
