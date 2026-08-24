@@ -126,13 +126,6 @@ struct MenuContentView: View {
                         }
                     }
                 }
-                let hints = peeringHints(vpn.connectableClusters)
-                if !hints.isEmpty {
-                    Divider()
-                    ForEach(hints, id: \.self) { hint in
-                        Text(hint)
-                    }
-                }
                 Divider()
                 // The one action that ends the 24-hour session; the next connect opens the
                 // browser sign-in again. Cluster toggles above never do this.
@@ -165,15 +158,6 @@ struct MenuContentView: View {
         }
     }
 
-    private func peeringHints(_ clusters: [VPNCluster]) -> [String] {
-        let connected = Set(clusters.filter(\.connected).map(\.cid))
-        let available = Set(clusters.map(\.cid))
-        return clusters.filter(\.connected).flatMap { cluster in
-            cluster.peeredWith.filter { available.contains($0) && !connected.contains($0) }.map { peer in
-                "\(peer) is peered with \(cluster.cid). Connect \(peer) for private routes and DNS."
-            }
-        }
-    }
 }
 
 @MainActor
