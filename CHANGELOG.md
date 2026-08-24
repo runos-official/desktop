@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.0
+
+- Keep the VPN session when a cluster is toggled off; only Sign Out ends it.
+- Show tunnel and traffic statistics on the About panel.
+- Add a last-hour traffic chart in five-minute buckets, with a total.
+- Add a Connection Status window that pings the VPN server and every node, then resolves private DNS, one cluster at a time.
+- Remove the peering hint line from the menu.
+
 ## v0.1.0
 
 - Add the RunOS menu-bar application for macOS 15 and newer.
