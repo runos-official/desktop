@@ -228,7 +228,8 @@ final class ModelTests: XCTestCase {
             desktopVersion: "1.2.3",
             cliVersion: "dev-build",
             accountId: "account-a",
-            companyName: "Example Company"
+            companyName: "Example Company",
+            vpn: nil
         )
 
         presenter.show(details)
@@ -277,5 +278,45 @@ final class ModelTests: XCTestCase {
         }
 
         return maximum
+    }
+}
+
+extension ModelTests {
+    func testVPNStatusDecodesNetworkStats() throws {
+        let json = """
+        {"schemaVersion":2,"running":true,"interface":"utun0","address":"10.153.46.3/32",
+         "session":{"present":true,"loginRequired":false},
+         "dns":{"available":true,"mode":"native","error":""},
+         "clusters":[{"cid":"v6b","name":"host-homelab","connected":true,"reachable":true,
+           "endpoint":"192.168.0.226:32768","resolver":"10.58.72.2","peerUp":true,"peeredWith":[],
+           "rxBytes":12345,"txBytes":67890,"lastHandshake":"2026-08-24T11:44:22+02:00"}]}
+        """.data(using: .utf8)!
+        let status = try JSONDecoder.runOS.decode(VPNStatus.self, from: json)
+        XCTAssertEqual(status.interface, "utun0")
+        XCTAssertEqual(status.dns?.mode, "native")
+        XCTAssertEqual(status.clusters[0].endpoint, "192.168.0.226:32768")
+        XCTAssertEqual(status.clusters[0].rxBytes, 12345)
+        XCTAssertNotNil(status.clusters[0].lastHandshake)
+    }
+
+    func testVPNStatusDecodesWithoutStats() throws {
+        // An older CLI omits every stats field; the app must keep working against it.
+        let json = """
+        {"running":false,"session":{"present":false,"loginRequired":true},"clusters":[]}
+        """.data(using: .utf8)!
+        let status = try JSONDecoder.runOS.decode(VPNStatus.self, from: json)
+        XCTAssertNil(status.interface)
+        XCTAssertNil(status.dns)
+    }
+
+    func testStatsFormattingBytesAndHandshake() {
+        XCTAssertEqual(StatsFormatting.bytes(nil), "—")
+        XCTAssertEqual(StatsFormatting.bytes(0), "Zero KB")
+        XCTAssertTrue(StatsFormatting.bytes(222_298_112).contains("MB"))
+        let now = Date(timeIntervalSince1970: 1_787_000_000)
+        XCTAssertEqual(StatsFormatting.handshake(nil, now: now), "never")
+        XCTAssertEqual(StatsFormatting.handshake(Date(timeIntervalSince1970: 0), now: now), "never")
+        XCTAssertEqual(StatsFormatting.handshake(now.addingTimeInterval(-42), now: now), "42s ago")
+        XCTAssertEqual(StatsFormatting.handshake(now.addingTimeInterval(-7200), now: now), "2h ago")
     }
 }

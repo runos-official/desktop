@@ -71,7 +71,8 @@ struct MenuContentView: View {
                     desktopVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development",
                     cliVersion: store.cliVersion,
                     accountId: store.activeAccountId,
-                    companyName: store.cliStatus?.companyName
+                    companyName: store.cliStatus?.companyName,
+                    vpn: store.vpnStatus
                 ))
             }
             Button("Quit RunOS Desktop") { NSApplication.shared.terminate(nil) }
@@ -181,6 +182,8 @@ struct AboutDetails: Equatable, Sendable {
     let cliVersion: String?
     let accountId: String?
     let companyName: String?
+    /// A snapshot of the tunnel for the network stats; nil hides the section entirely.
+    let vpn: VPNStatus?
 }
 
 enum AboutLayout {
@@ -216,7 +219,9 @@ private final class AboutWindowController {
     func show(_ details: AboutDetails) {
         let panel = window ?? makePanel()
         window = panel
-        panel.contentView = NSHostingView(rootView: AboutContentView(details: details))
+        let hosting = NSHostingView(rootView: AboutContentView(details: details))
+        panel.contentView = hosting
+        panel.setContentSize(hosting.fittingSize)
         NSApplication.shared.activate(ignoringOtherApps: true)
         panel.center()
         panel.makeKeyAndOrderFront(nil)
@@ -243,6 +248,10 @@ private final class AboutWindowController {
 private struct AboutContentView: View {
     let details: AboutDetails
 
+    private var connectedClusters: [VPNCluster] {
+        details.vpn?.clusters.filter { $0.connected && $0.reachable } ?? []
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             Image("AboutIcon")
@@ -263,6 +272,10 @@ private struct AboutContentView: View {
             }
             .font(.callout)
             .foregroundStyle(.secondary)
+            if let vpn = details.vpn, vpn.running {
+                Divider().frame(width: AboutLayout.contentWidth)
+                networkSection(vpn)
+            }
             Text("RunOS brings cloud infrastructure to your own hardware.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -276,6 +289,49 @@ private struct AboutContentView: View {
             .keyboardShortcut(.cancelAction)
         }
         .frame(width: AboutLayout.contentWidth)
-        .frame(width: AboutLayout.panelWidth, height: AboutLayout.panelHeight)
+        .padding(.vertical, 20)
+        .frame(width: AboutLayout.panelWidth)
+    }
+
+    @ViewBuilder
+    private func networkSection(_ vpn: VPNStatus) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            statRow("Tunnel", [vpn.interface, vpn.address].compactMap { $0 }.joined(separator: "  ·  "))
+            statRow("DNS", dnsSummary(vpn))
+            ForEach(connectedClusters) { cluster in
+                Divider()
+                statRow(MenuPresentation.clusterLabel(name: cluster.name, cid: cluster.cid), cluster.endpoint ?? "—")
+                statRow(
+                    "Traffic",
+                    "↓ \(StatsFormatting.bytes(cluster.rxBytes))   ↑ \(StatsFormatting.bytes(cluster.txBytes))"
+                )
+                statRow("Handshake", StatsFormatting.handshake(cluster.lastHandshake))
+                if let resolver = cluster.resolver {
+                    statRow("Resolver", resolver)
+                }
+            }
+        }
+        .font(.callout)
+        .frame(width: AboutLayout.contentWidth, alignment: .leading)
+    }
+
+    private func dnsSummary(_ vpn: VPNStatus) -> String {
+        guard let dns = vpn.dns else { return "—" }
+        if dns.available {
+            return "private zones active" + (dns.mode.map { " (\($0))" } ?? "")
+        }
+        let error = (dns.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return error.isEmpty ? "unavailable" : "unavailable: \(error)"
+    }
+
+    private func statRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .textSelection(.enabled)
+                .multilineTextAlignment(.trailing)
+        }
     }
 }

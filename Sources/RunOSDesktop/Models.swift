@@ -18,6 +18,10 @@ struct VPNStatus: Decodable, Equatable, Sendable {
     let session: VPNSession
     let clusters: [VPNCluster]
     let lastPollError: String?
+    // Network detail for the About panel. All optional: an older CLI simply omits them.
+    let interface: String?
+    let address: String?
+    let dns: VPNDns?
 
     /*
      Every cluster worth a row in the menu.
@@ -48,6 +52,12 @@ struct VPNStatus: Decodable, Equatable, Sendable {
     }
 }
 
+struct VPNDns: Decodable, Equatable, Sendable {
+    let available: Bool
+    let mode: String?
+    let error: String?
+}
+
 struct VPNSession: Decodable, Equatable, Sendable {
     let present: Bool
     let expiresAt: Date?
@@ -62,6 +72,12 @@ struct VPNCluster: Decodable, Equatable, Identifiable, Sendable {
     let reason: String?
     let peerUp: Bool
     let peeredWith: [String]
+    // Stats for the About panel. All optional: an older CLI simply omits them.
+    let endpoint: String?
+    let resolver: String?
+    let rxBytes: Int64?
+    let txBytes: Int64?
+    let lastHandshake: Date?
 
     var id: String { cid }
 
@@ -99,5 +115,31 @@ extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+}
+
+/*
+ Formatting for the About panel's network stats. Pure, so the byte and handshake rendering is
+ testable without a panel.
+ */
+enum StatsFormatting {
+    static func bytes(_ value: Int64?) -> String {
+        guard let value, value >= 0 else { return "—" }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        return formatter.string(fromByteCount: value)
+    }
+
+    /*
+     WireGuard reports "never handshaken" as the zero time, which the CLI passes through as
+     0001-01-01. Anything before 2000 is that sentinel, not a real handshake.
+     */
+    static func handshake(_ date: Date?, now: Date = Date()) -> String {
+        guard let date, date.timeIntervalSince1970 > 946_684_800 else { return "never" }
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+        if seconds < 60 { return "\(seconds)s ago" }
+        if seconds < 3600 { return "\(seconds / 60)m ago" }
+        if seconds < 86_400 { return "\(seconds / 3600)h ago" }
+        return "\(seconds / 86_400)d ago"
     }
 }
