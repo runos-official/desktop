@@ -35,6 +35,10 @@ The CLI installer reads the latest GitHub release.
 Do not change Conductor configuration.
 Do not merge `main` automatically.
 
+The leak gate runs again inside `make release`, and no flag skips it.
+Read [`release-desktop`](../release-desktop/SKILL.md) for the leak gate and the hardware naming rule.
+This repository is public, so read the payload yourself as well.
+
 ## Failure handling
 
 Fix forward with a new release candidate.
