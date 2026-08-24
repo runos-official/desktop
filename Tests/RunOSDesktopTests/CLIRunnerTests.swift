@@ -217,7 +217,7 @@ final class CLIRunnerTests: XCTestCase {
             // A genuinely working cluster, not just a tunnel that is up: the connected icon now
             // requires a cluster that is connected AND reachable. This test is about activity
             // during the final refresh, so the fixture is corrected rather than the assertion.
-            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#
+            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"a1b","name":"lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#
         ], delayMarker: marker)
         defer {
             try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
@@ -258,7 +258,7 @@ final class CLIRunnerTests: XCTestCase {
     func testTheAppSwitchesTheVPNAccountItselfInsteadOfAsking() async throws {
         let executable = try makeFakeCLI(commands: [
             "--version": "dev-2026-08-17T11:42:49Z",
-            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"rjwrn","vpnAccountId":"sjnnz","vpnAccountMismatch":true}"#,
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"abcde","vpnAccountId":"fghij","vpnAccountMismatch":true}"#,
             "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#,
             "vpn up --non-interactive --json": "{}"
         ])
@@ -289,7 +289,7 @@ final class CLIRunnerTests: XCTestCase {
         let marker = FileManager.default.temporaryDirectory.appending(path: "noup-\(UUID().uuidString)")
         let executable = try makeFakeCLI(commands: [
             "--version": "dev-2026-08-17T11:42:49Z",
-            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"rjwrn","vpnAccountId":"sjnnz","vpnAccountMismatch":true}"#,
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"abcde","vpnAccountId":"fghij","vpnAccountMismatch":true}"#,
             // The tunnel is DOWN.
             "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
             "vpn up --non-interactive --json": "__COUNT__"
@@ -318,7 +318,7 @@ final class CLIRunnerTests: XCTestCase {
         // `vpn up --non-interactive --json` is absent, so the fake refuses it.
         let executable = try makeFakeCLI(commands: [
             "--version": "dev-2026-08-17T11:42:49Z",
-            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"rjwrn","vpnAccountId":"sjnnz","vpnAccountMismatch":true}"#,
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"abcde","vpnAccountId":"fghij","vpnAccountMismatch":true}"#,
             "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#
         ], missingMessage: "the VPN needs a fresh sign-in and this run may not open a browser")
         defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
@@ -343,7 +343,7 @@ final class CLIRunnerTests: XCTestCase {
         let marker = FileManager.default.temporaryDirectory.appending(path: "switch-\(UUID().uuidString)")
         let executable = try makeFakeCLI(commands: [
             "--version": "dev-2026-08-17T11:42:49Z",
-            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"rjwrn","vpnAccountId":"sjnnz","vpnAccountMismatch":true}"#,
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"abcde","vpnAccountId":"fghij","vpnAccountMismatch":true}"#,
             "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#,
             "vpn up --non-interactive --json": "__COUNT__"
         ], countMarker: marker)

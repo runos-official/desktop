@@ -17,7 +17,7 @@ enum MenuPresentation {
     /*
      What a person is told when the CLI and the VPN are on different accounts.
 
-     The old text was "Account mismatch: CLI sjnnz, VPN rjwrn" followed by "Run 'runos vpn up' to
+     The old text was "Account mismatch: CLI fghij, VPN abcde" followed by "Run 'runos vpn up' to
      synchronize the VPN account". It named a state without its consequence and then asked the
      person to go and type a command the app can run itself.
 

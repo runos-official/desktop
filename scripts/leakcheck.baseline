@@ -12,16 +12,8 @@
 #
 # Columns are tab separated: <path> <kind> <token>
 # Regenerate with: make leakcheck-update
-Sources/RunOSDesktop/MenuContentView.swift	id	rjwrn
-Sources/RunOSDesktop/MenuContentView.swift	id	sjnnz
-Sources/RunOSDesktop/RefreshCoordinator.swift	id	rjwrn
-Sources/RunOSDesktop/RefreshCoordinator.swift	id	sjnnz
-Tests/RunOSDesktopTests/CLIRunnerTests.swift	id	rjwrn
-Tests/RunOSDesktopTests/CLIRunnerTests.swift	id	sjnnz
-Tests/RunOSDesktopTests/ModelTests.swift	id	rjwrn
-Tests/RunOSDesktopTests/ModelTests.swift	ipv4	10.153.46.3
-Tests/RunOSDesktopTests/ModelTests.swift	ipv4	10.58.72.1
-Tests/RunOSDesktopTests/ModelTests.swift	ipv4	10.58.72.2
-Tests/RunOSDesktopTests/ModelTests.swift	ipv4	169.1.210.215
-Tests/RunOSDesktopTests/ModelTests.swift	ipv4	172.30.0.9
-Tests/RunOSDesktopTests/ModelTests.swift	ipv4	192.168.0.226
+Tests/RunOSDesktopTests/ModelTests.swift	ipv4	10.10.0.3
+Tests/RunOSDesktopTests/ModelTests.swift	ipv4	10.20.0.1
+Tests/RunOSDesktopTests/ModelTests.swift	ipv4	10.20.0.2
+Tests/RunOSDesktopTests/ModelTests.swift	ipv4	172.20.0.9
+Tests/RunOSDesktopTests/ModelTests.swift	ipv4	192.168.10.20

@@ -80,7 +80,7 @@ final class RefreshCoordinator: ObservableObject {
     /*
      Keep the VPN on the account the person is signed in to, without telling them about it.
 
-     The app used to report "the CLI is on rjwrn, the VPN is on sjnnz" and offer a button. That
+     The app used to report "the CLI is on abcde, the VPN is on fghij" and offer a button. That
      asks a person to reconcile two account states they never knew existed, to fix something the
      app can fix itself; which is exactly what it now does. `vpn up --non-interactive` is silent
      when the sign-in is recent enough, and after an account switch it usually is.

@@ -39,7 +39,7 @@ final class ModelTests: XCTestCase {
      connected icon, so both surfaces asserted a working tunnel over a cluster that routes nothing.
      */
     func testADeadConnectionIsNeverPresentedAsWorking() throws {
-        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"vhm-lab","connected":true,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}] }"#.utf8)
+        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"a1b","name":"vhm-lab","connected":true,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}] }"#.utf8)
         let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
 
         XCTAssertFalse(result.hasWorkingConnection, "a cluster with no VPN server is not a working connection")
@@ -52,12 +52,12 @@ final class ModelTests: XCTestCase {
     }
 
     func testAWorkingConnectionIsLabelledPlainly() throws {
-        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"vhm-lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}] }"#.utf8)
+        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"a1b","name":"vhm-lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}] }"#.utf8)
         let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
 
         XCTAssertTrue(result.hasWorkingConnection)
         XCTAssertFalse(result.clusters[0].isDeadConnection)
-        XCTAssertEqual(MenuPresentation.clusterLabel(result.clusters[0]), "vhm-lab (g4v)")
+        XCTAssertEqual(MenuPresentation.clusterLabel(result.clusters[0]), "vhm-lab (a1b)")
     }
 
     /*
@@ -68,9 +68,9 @@ final class ModelTests: XCTestCase {
      never the two-account state behind it.
     */
     func testSignInPromptAsksForTheOneThingAPersonCanDo() {
-        let prompt = MenuPresentation.signInPrompt(account: "rjwrn")
+        let prompt = MenuPresentation.signInPrompt(account: "abcde")
 
-        XCTAssertTrue(prompt.contains("rjwrn"), "names the account it is for, got \(prompt)")
+        XCTAssertTrue(prompt.contains("abcde"), "names the account it is for, got \(prompt)")
         XCTAssertTrue(prompt.lowercased().contains("sign in"), "asks for a sign-in, got \(prompt)")
         // None of the internals the old message leaked.
         XCTAssertFalse(prompt.lowercased().contains("mismatch"), "got \(prompt)")
@@ -94,7 +94,7 @@ final class ModelTests: XCTestCase {
         store.errorMessage = nil
         // Running with a cluster that is genuinely up is the ONLY thing that earns the connected
         // icon. The tunnel being up carries no promise on its own.
-        store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#.utf8))
+        store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"a1b","name":"lab","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#.utf8))
         XCTAssertEqual(store.menuBarState, .connected)
     }
 
@@ -107,7 +107,7 @@ final class ModelTests: XCTestCase {
     func testMenuBarDoesNotClaimConnectedWhenNothingIsReachable() {
         let store = StateStore()
 
-        store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"g4v","name":"lab","connected":true,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}]}"#.utf8))
+        store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"a1b","name":"lab","connected":true,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}]}"#.utf8))
         XCTAssertEqual(store.menuBarState, .attention, "connected to a cluster that routes nothing is a problem, not a connection")
 
         store.vpnStatus = try? JSONDecoder.runOS.decode(VPNStatus.self, from: Data(#"{"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#.utf8))
@@ -157,8 +157,8 @@ final class ModelTests: XCTestCase {
     }
 
     func testVPNClusterLabelIncludesCID() {
-        XCTAssertEqual(MenuPresentation.clusterLabel(name: "vhm-lab", cid: "g4v"), "vhm-lab (g4v)")
-        XCTAssertEqual(MenuPresentation.clusterLabel(name: "", cid: "g4v"), "g4v")
+        XCTAssertEqual(MenuPresentation.clusterLabel(name: "vhm-lab", cid: "a1b"), "vhm-lab (a1b)")
+        XCTAssertEqual(MenuPresentation.clusterLabel(name: "", cid: "a1b"), "a1b")
     }
 
     func testVersionComparison() {
@@ -286,17 +286,17 @@ final class ModelTests: XCTestCase {
 extension ModelTests {
     func testVPNStatusDecodesNetworkStats() throws {
         let json = """
-        {"schemaVersion":2,"running":true,"interface":"utun0","address":"10.153.46.3/32",
+        {"schemaVersion":2,"running":true,"interface":"utun0","address":"10.10.0.3/32",
          "session":{"present":true,"loginRequired":false},
          "dns":{"available":true,"mode":"native","error":""},
-         "clusters":[{"cid":"v6b","name":"host-homelab","connected":true,"reachable":true,
-           "endpoint":"192.168.0.226:32768","resolver":"10.58.72.2","peerUp":true,"peeredWith":[],
+         "clusters":[{"cid":"c2d","name":"host-homelab","connected":true,"reachable":true,
+           "endpoint":"192.168.10.20:32768","resolver":"10.20.0.2","peerUp":true,"peeredWith":[],
            "rxBytes":12345,"txBytes":67890,"lastHandshake":"2026-08-24T11:44:22+02:00"}]}
         """.data(using: .utf8)!
         let status = try JSONDecoder.runOS.decode(VPNStatus.self, from: json)
         XCTAssertEqual(status.interface, "utun0")
         XCTAssertEqual(status.dns?.mode, "native")
-        XCTAssertEqual(status.clusters[0].endpoint, "192.168.0.226:32768")
+        XCTAssertEqual(status.clusters[0].endpoint, "192.168.10.20:32768")
         XCTAssertEqual(status.clusters[0].rxBytes, 12345)
         XCTAssertNotNil(status.clusters[0].lastHandshake)
     }
@@ -388,13 +388,13 @@ extension ModelTests {
     }
 
     func testResolvedAddressesAndPrivacy() {
-        let output = "name: k8s.v6b.rjwrn.dev.runos.xyz\nip_address: 10.58.72.1\nip_address: 10.58.72.2\n"
-        XCTAssertEqual(ConnectionDiagnostics.resolvedAddresses(output), ["10.58.72.1", "10.58.72.2"])
+        let output = "name: k8s.c2d.abcde.dev.runos.xyz\nip_address: 10.20.0.1\nip_address: 10.20.0.2\n"
+        XCTAssertEqual(ConnectionDiagnostics.resolvedAddresses(output), ["10.20.0.1", "10.20.0.2"])
         XCTAssertEqual(ConnectionDiagnostics.resolvedAddresses("no such name\n"), [])
-        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("10.58.72.1"))
-        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("192.168.0.226"))
-        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("172.30.0.9"))
-        XCTAssertFalse(ConnectionDiagnostics.isPrivateIPv4("169.1.210.215"))
+        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("10.20.0.1"))
+        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("192.168.10.20"))
+        XCTAssertTrue(ConnectionDiagnostics.isPrivateIPv4("172.20.0.9"))
+        XCTAssertFalse(ConnectionDiagnostics.isPrivateIPv4("203.0.113.9"))
         XCTAssertFalse(ConnectionDiagnostics.isPrivateIPv4("not-an-ip"))
     }
 }
