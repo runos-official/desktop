@@ -121,6 +121,7 @@ fi
 # checker over the staged diff and CAN be skipped with --no-verify, which is why
 # this one exists.
 step "Leak gate (public repo, whole tree)"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required for the leak gate"
 if ! LEAK_OUTPUT="$(python3 "$REPO_ROOT/scripts/leakcheck.py" 2>&1)"; then
   printf '%s\n' "$LEAK_OUTPUT" >&2
   fail "leak gate failed (public repo): remove the identifiers above before releasing. Do not hand-edit scripts/leakcheck.baseline."

@@ -1,4 +1,4 @@
-# leakcheck baseline (leakcheck v1.0.0)
+# leakcheck baseline (leakcheck v1.1.0)
 #
 # WHAT THIS FILE IS
 # Every line below is an internal identifier that is ALREADY PUBLISHED in this
@@ -13,8 +13,11 @@
 # Columns are tab separated: <path> <kind> <token>
 # Regenerate with: make leakcheck-update
 Sources/RunOSDesktop/MenuContentView.swift	id	rjwrn
+Sources/RunOSDesktop/MenuContentView.swift	id	sjnnz
 Sources/RunOSDesktop/RefreshCoordinator.swift	id	rjwrn
+Sources/RunOSDesktop/RefreshCoordinator.swift	id	sjnnz
 Tests/RunOSDesktopTests/CLIRunnerTests.swift	id	rjwrn
+Tests/RunOSDesktopTests/CLIRunnerTests.swift	id	sjnnz
 Tests/RunOSDesktopTests/ModelTests.swift	id	rjwrn
 Tests/RunOSDesktopTests/ModelTests.swift	ipv4	10.153.46.3
 Tests/RunOSDesktopTests/ModelTests.swift	ipv4	10.58.72.1
