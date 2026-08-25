@@ -70,7 +70,11 @@ final class RefreshCoordinator: ObservableObject {
             if let vpn, vpn.running {
                 store.traffic.record(total: vpn.totalTrafficBytes)
             }
-            update(\.errorMessage, to: status.authError)
+            // Being signed out is a STATE, not an error, and it has a Sign In button. Promoting
+            // conductor's sentence to the error banner put a paragraph of terminal wording in the
+            // menu explaining something the app already offers to fix. Every OTHER authError still
+            // surfaces: the rule is narrow on purpose.
+            update(\.errorMessage, to: status.sessionExpired == true ? nil : status.authError)
             await followCLIAccount(status, vpn: vpn)
         } catch {
             update(\.errorMessage, to: error.localizedDescription)

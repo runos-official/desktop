@@ -9,6 +9,15 @@ struct CLIStatus: Decodable, Equatable, Sendable {
     let vpnAccountMismatch: Bool?
     let vpnRunning: Bool?
     let authError: String?
+    /*
+     Conductor refused the sign-in because it aged out. A FLAG, not a sentence to match on.
+
+     `authError` in this case carries conductor's terminal wording ("Your session is 28 hours old
+     ... Run `runos login` to sign in again"), which is right for a terminal and wrong for a menu
+     with a Sign In button two lines above it. Older CLIs omit the field, which reads as false: an
+     unknown state stays whatever it was rather than claiming a signed-out one.
+    */
+    let sessionExpired: Bool?
 }
 
 struct VPNStatus: Decodable, Equatable, Sendable {

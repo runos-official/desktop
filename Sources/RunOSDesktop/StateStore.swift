@@ -34,8 +34,11 @@ final class StateStore: ObservableObject {
      person cannot act on a tinted icon.
     */
     var signInRequired: Bool {
-        vpnSignInRequired || vpnStatus?.session.loginRequired == true
+        vpnSignInRequired || vpnStatus?.session.loginRequired == true || cliSessionExpired
     }
+
+    /// Conductor refused the CLI's sign-in because it aged out. See CLIStatus.sessionExpired.
+    var cliSessionExpired: Bool { cliStatus?.sessionExpired == true }
 
     /*
      Whether the session ends soon enough to be worth interrupting for.

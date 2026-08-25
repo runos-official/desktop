@@ -29,6 +29,16 @@ enum MenuPresentation {
         "Sign in to use the VPN with \(accountName(account))."
     }
 
+    /*
+     What the menu says when the session has simply ended.
+
+     A state, in one line, with the button beside it. It deliberately does not name a command to
+     type or do arithmetic about hours: both belong to a terminal, and there is a control here.
+    */
+    static func signedOutPrompt() -> String {
+        "You are currently signed out."
+    }
+
     private static func accountName(_ id: String?) -> String {
         let trimmed = (id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "another account" : trimmed
@@ -138,7 +148,12 @@ struct MenuContentView: View {
             // Driven by `signInRequired`, not `vpnSignInRequired`: a session that simply EXPIRED
             // reached neither this message nor the button, so the app tinted its icon and left the
             // person with a connected-looking VPN that dropped every packet.
-            Text(MenuPresentation.signInPrompt(account: store.activeAccountId))
+            // Two causes, two sentences. An expired session is "you are signed out"; an account
+            // switch the app could not complete is about WHICH account, and collapsing them would
+            // lose the part that matters in the second case.
+            Text(store.cliSessionExpired
+                ? MenuPresentation.signedOutPrompt()
+                : MenuPresentation.signInPrompt(account: store.activeAccountId))
             Button("Sign In") {
                 coordinator.beginSignIn()
             }

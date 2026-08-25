@@ -788,3 +788,55 @@ extension ModelTests {
         XCTAssertEqual(collect([""]), [])
     }
 }
+
+/*
+ Reported 2026-08-25, with a screenshot of the menu: "lol what is this long message? The top should
+ just say You are currently signed out".
+
+ Conductor's sentence, "Your session is 28 hours old and sessions expire after 24. Run `runos login`
+ to sign in again.", was landing in the menu verbatim. It is written for a terminal, where `runos
+ login` is a thing you type; in a dropdown with a Sign In button two lines above it, it is a
+ paragraph explaining a state the app already has a control for.
+
+ Being signed out is a STATE, not an error. The app branches on the flag, never on the sentence.
+*/
+extension ModelTests {
+    @MainActor
+    private func signedOutStore() throws -> StateStore {
+        let data = Data(#"{"schemaVersion":1,"authenticated":false,"accountId":"acct","sessionExpired":true,"authError":"Your session is 28 hours old and sessions expire after 24. Run `runos login` to sign in again."}"#.utf8)
+        let store = StateStore()
+        store.cliStatus = try JSONDecoder.runOS.decode(CLIStatus.self, from: data)
+        return store
+    }
+
+    @MainActor
+    func testAnExpiredSessionAsksForASignInWithoutTheParagraph() throws {
+        let store = try signedOutStore()
+        XCTAssertTrue(store.signInRequired)
+        // The sentence must not become the error banner. It is not an error; it is the state the
+        // Sign In button exists for.
+        XCTAssertNil(store.errorMessage)
+    }
+
+    func testTheSignedOutLineSaysTheStateAndNothingElse() {
+        XCTAssertEqual(MenuPresentation.signedOutPrompt(), "You are currently signed out.")
+        // No command to type, no arithmetic about hours: there is a button.
+        XCTAssertFalse(MenuPresentation.signedOutPrompt().contains("runos login"))
+        XCTAssertFalse(MenuPresentation.signedOutPrompt().contains("24"))
+    }
+
+    func testAnAccountMismatchKeepsItsOwnSentence() throws {
+        // A different situation with a different thing to say: the VPN belongs to another account.
+        // Collapsing both into "signed out" would lose the part that matters.
+        XCTAssertTrue(MenuPresentation.signInPrompt(account: "acct").contains("acct"))
+    }
+
+    @MainActor
+    func testARealErrorStillReachesTheMenu() throws {
+        // The rule is narrow: only the session-expiry sentence is suppressed, because only that one
+        // has a control beside it. Anything else the CLI says still surfaces.
+        let store = StateStore()
+        store.errorMessage = "the daemon is not running"
+        XCTAssertEqual(store.errorMessage, "the daemon is not running")
+    }
+}
