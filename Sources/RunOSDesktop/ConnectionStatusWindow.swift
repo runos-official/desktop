@@ -75,12 +75,23 @@ final class ConnectionStatusRunner: ObservableObject {
          sequence inside its task.
         */
         task = Task { [weak self] in
-            await withTaskGroup(of: Void.self) { group in
-                for cluster in clusters {
-                    group.addTask { await self?.testCluster(cluster) }
-                }
+            guard let self else { return }
+            /*
+             Independent child tasks rather than a task group, because the work is MainActor
+             ISOLATED. `withTaskGroup` wants a @Sendable closure, and a closure written here
+             inherits this type's MainActor isolation, so handing one to `addTask` is rejected:
+             "sending value of non-Sendable type '() async -> Void' risks causing data races".
+             A child Task inherits the isolation instead of crossing it, which is what this work
+             actually wants: it runs on the main actor and interleaves at its await points, which
+             is where every ping spends its time.
+            */
+            let running = clusters.map { cluster in
+                Task { await self.testCluster(cluster) }
             }
-            self?.isRunning = false
+            for child in running {
+                await child.value
+            }
+            self.isRunning = false
         }
     }
 
