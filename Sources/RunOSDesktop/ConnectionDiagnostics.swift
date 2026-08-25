@@ -30,6 +30,41 @@ enum ConnectionDiagnostics {
         return PingVerdict(reachable: true, detail: "reachable")
     }
 
+    /*
+     One short line for the detail column, whatever was handed in.
+
+     The reported defect, 2026-08-25: every failing ping row carried the WHOLE of ping's stdout,
+     four lines of it, wrapped into a column beside a red cross. A person reading that window wants
+     to know WHERE the path breaks; the packet counts are noise at that moment, and four of them
+     stacked up hide the one row that matters.
+
+     A last-resort bound rather than the first line of defence: a caller that can name the failure
+     (`pingVerdict` says "no reply") should say that instead. This is what stops anything unforeseen
+     from dumping a wall of text into the window again.
+    */
+    static func concise(_ text: String) -> String {
+        let firstLine = text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first(where: { !$0.isEmpty })
+        guard let line = firstLine, !line.isEmpty else { return "failed" }
+        guard line.count > 80 else { return line }
+        return line.prefix(79) + "\u{2026}"
+    }
+
+    /*
+     Why the tests below CANNOT pass, when that is knowable before the first packet.
+
+     An expired VPN session drops every overlay packet while the tunnel interface stays up and the
+     cluster still reads connected. Running a dozen pings that must all fail, and leaving the person
+     to infer the reason from a column of red, is the long way round to a fact the CLI already
+     reported. Returns nil when there is nothing to say, and the tests run as normal.
+    */
+    static func sessionBlock(_ session: VPNSession) -> String? {
+        guard session.loginRequired || !session.present else { return nil }
+        return "VPN session expired. Sign in again."
+    }
+
     /// The addresses dscacheutil resolved, in order. Empty means the name did not resolve.
     static func resolvedAddresses(_ output: String) -> [String] {
         output.split(separator: "\n").compactMap { line in

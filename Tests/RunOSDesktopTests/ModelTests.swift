@@ -398,3 +398,83 @@ extension ModelTests {
         XCTAssertFalse(ConnectionDiagnostics.isPrivateIPv4("not-an-ip"))
     }
 }
+
+/*
+ Two defects reported together, 2026-08-25, from one screenshot of the Connection Status window:
+ every ping row was a wall of raw ping stdout, and nothing anywhere said WHY they were all failing.
+
+ The cause of the failures was an expired VPN session: `runos vpn status --json` carried
+ session {present: false, loginRequired: true}, the tunnel interface was still up, and the cluster
+ still read connected: true. So the app presented a working VPN that routed nothing, and the only
+ hint was a tinted menu-bar icon.
+*/
+extension ModelTests {
+    func testPingFailureIsOneShortLineNotTheWholeDump() {
+        // The screenshot: "PING 10.x.x.x: 56 data bytes / Request timeout for icmp_seq 0 / --- ping
+        // statistics --- / 2 packets transmitted, 0 packets received, 100.0% packet loss" in the
+        // detail column of one row. `pingVerdict` already returns "no reply" for this; the
+        // production path never reached it, because CLIRunner.run THROWS on a nonzero exit and the
+        // catch used error.localizedDescription, which is the whole dump.
+        let dump = """
+        PING 198.51.100.7 (198.51.100.7): 56 data bytes
+        Request timeout for icmp_seq 0
+
+        --- 198.51.100.7 ping statistics ---
+        2 packets transmitted, 0 packets received, 100.0% packet loss
+        """
+        XCTAssertEqual(ConnectionDiagnostics.concise(dump), "PING 198.51.100.7 (198.51.100.7): 56 data bytes")
+        XCTAssertFalse(ConnectionDiagnostics.concise(dump).contains("\n"))
+    }
+
+    func testConciseCapsALongSingleLineAndSurvivesEmptyInput() {
+        let long = String(repeating: "x", count: 400)
+        XCTAssertLessThanOrEqual(ConnectionDiagnostics.concise(long).count, 80)
+        XCTAssertTrue(ConnectionDiagnostics.concise(long).hasSuffix("…"))
+        XCTAssertEqual(ConnectionDiagnostics.concise("   \n\n  "), "failed")
+        XCTAssertEqual(ConnectionDiagnostics.concise("\n\nreal reason\nnoise"), "real reason")
+    }
+
+    func testAFailedPingReadsAsNoReply() {
+        // What the row must say once the verdict is actually consulted.
+        let verdict = ConnectionDiagnostics.pingVerdict(
+            exitCode: 2,
+            output: "PING 198.51.100.7: 56 data bytes\nRequest timeout for icmp_seq 0\n"
+        )
+        XCTAssertFalse(verdict.reachable)
+        XCTAssertEqual(verdict.detail, "no reply")
+    }
+
+    func testExpiredVPNSessionIsReportedAsTheReason() throws {
+        // The diagnostics must not run a dozen pings that CANNOT pass and leave the person to infer
+        // why. An expired session is the answer, and it is knowable before the first packet.
+        let expired = VPNSession(present: false, expiresAt: nil, loginRequired: true)
+        XCTAssertEqual(
+            ConnectionDiagnostics.sessionBlock(expired),
+            "VPN session expired. Sign in again."
+        )
+        XCTAssertNil(ConnectionDiagnostics.sessionBlock(VPNSession(present: true, expiresAt: nil, loginRequired: false)))
+    }
+
+    @MainActor
+    func testExpiredSessionAsksForASignInEvenWithNoAccountMismatch() throws {
+        // The gap: `vpnSignInRequired` was set ONLY by the account-follow path, so a plain expiry
+        // showed no message and no Sign In button. The menu bar tinted and said nothing.
+        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":false,"loginRequired":true},"clusters":[{"cid":"c1","name":"One","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#.utf8)
+        let store = StateStore()
+        store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+        store.vpnSignInRequired = false
+
+        XCTAssertTrue(store.signInRequired)
+        XCTAssertEqual(store.menuBarState, .attention)
+    }
+
+    @MainActor
+    func testAWorkingSessionAsksForNothing() throws {
+        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"c1","name":"One","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#.utf8)
+        let store = StateStore()
+        store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+
+        XCTAssertFalse(store.signInRequired)
+        XCTAssertEqual(store.menuBarState, .connected)
+    }
+}

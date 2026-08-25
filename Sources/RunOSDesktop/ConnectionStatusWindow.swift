@@ -36,6 +36,14 @@ final class ConnectionStatusRunner: ObservableObject {
             steps = [DiagnosticStep(id: "off", cluster: "", title: "VPN is not connected", state: .failed("Connect the VPN first"))]
             return
         }
+        // Before any packet: an expired session drops everything over the overlay while the tunnel
+        // interface stays up and the clusters still read connected. Running a dozen pings that
+        // CANNOT pass, and leaving the person to infer why from a column of red, is the long way
+        // round to a fact the CLI already reported.
+        if let reason = ConnectionDiagnostics.sessionBlock(vpn.session) {
+            steps = [DiagnosticStep(id: "session", cluster: "", title: "VPN session", state: .failed(reason))]
+            return
+        }
         let clusters = vpn.clusters.filter { $0.connected && $0.reachable }
         guard !clusters.isEmpty else {
             steps = [DiagnosticStep(id: "none", cluster: "", title: "No connected clusters", state: .failed("Connect a cluster first"))]
@@ -74,7 +82,7 @@ final class ConnectionStatusRunner: ObservableObject {
                 nodes = list.nodes
                 return .passed("\(list.nodes.count) node(s)")
             } catch {
-                return .failed(error.localizedDescription)
+                return .failed(ConnectionDiagnostics.concise(error.localizedDescription))
             }
         }
         for node in nodes {
@@ -99,7 +107,7 @@ final class ConnectionStatusRunner: ObservableObject {
                         ? .passed(first)
                         : .failed("resolved publicly (\(first)), not over the VPN")
                 } catch {
-                    return .failed(error.localizedDescription)
+                    return .failed(ConnectionDiagnostics.concise(error.localizedDescription))
                 }
             }
         }
@@ -121,14 +129,18 @@ final class ConnectionStatusRunner: ObservableObject {
 
     private static func ping(_ address: String) async -> DiagnosticState {
         do {
-            let result = try await run("/sbin/ping", ["-c", "2", "-W", "2000", address])
+            // PROBE, not run. A host that does not answer exits 2, and that is the answer this
+            // window asked for, not an error: `run` would throw it with the whole of ping's stdout
+            // as the message, which is how four lines of raw output ended up in one row.
+            let runner = try CLIRunner(executableURL: URL(filePath: "/sbin/ping"))
+            let result = try await runner.probe(["-c", "2", "-W", "2000", address])
             let verdict = ConnectionDiagnostics.pingVerdict(
                 exitCode: result.exitCode,
                 output: String(decoding: result.stdout, as: UTF8.self)
             )
             return verdict.reachable ? .passed(verdict.detail) : .failed(verdict.detail)
         } catch {
-            return .failed(error.localizedDescription)
+            return .failed(ConnectionDiagnostics.concise(error.localizedDescription))
         }
     }
 

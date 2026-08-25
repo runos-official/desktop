@@ -24,6 +24,19 @@ final class StateStore: ObservableObject {
     */
     @Published var vpnSignInRequired = false
 
+    /*
+     Whether the person must sign in again before the VPN carries anything.
+
+     TWO causes, one prompt. `vpnSignInRequired` is the account-follow path: the app tried to switch
+     accounts by itself and Conductor wanted a fresh sign-in. `session.loginRequired` is the plain
+     expiry, and it was the one nobody was told about: the menu bar tinted, the menu said nothing,
+     the cluster still showed connected, and every packet was dropped (reported 2026-08-25). A
+     person cannot act on a tinted icon.
+    */
+    var signInRequired: Bool {
+        vpnSignInRequired || vpnStatus?.session.loginRequired == true
+    }
+
     var activeAccountId: String? { cliStatus?.accountId }
     var isBusy: Bool { operationMessage != nil }
     var updateActionTitle: String {
@@ -31,7 +44,7 @@ final class StateStore: ObservableObject {
     }
 
     var menuBarState: MenuBarState {
-        if isBusy || errorMessage != nil || cliOutdated || vpnSignInRequired || vpnStatus?.session.loginRequired == true {
+        if isBusy || errorMessage != nil || cliOutdated || signInRequired {
             return .attention
         }
         // `running` is only the tunnel interface. The connected icon is a claim that the VPN is

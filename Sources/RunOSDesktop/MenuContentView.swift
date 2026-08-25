@@ -92,10 +92,14 @@ struct MenuContentView: View {
         if let operation = store.operationMessage {
             Label(operation, systemImage: "clock")
         }
-        if store.vpnSignInRequired {
+        if store.signInRequired {
             // The app has already tried and cannot do this one: Conductor wants a fresh sign-in
             // and an unattended run may not open a browser. So this is the only thing said, and
             // it is a thing to do rather than a state to explain.
+            //
+            // Driven by `signInRequired`, not `vpnSignInRequired`: a session that simply EXPIRED
+            // reached neither this message nor the button, so the app tinted its icon and left the
+            // person with a connected-looking VPN that dropped every packet.
             Label(MenuPresentation.signInPrompt(account: store.activeAccountId), systemImage: "person.badge.key")
             Button("Sign In") {
                 coordinator.setVPN(enabled: true)

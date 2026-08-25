@@ -30,7 +30,34 @@ actor CLIRunner {
         self.executableURL = executableURL
     }
 
+    /*
+     Run a process whose FAILURE is an expected answer, not an error.
+
+     `run` throws on a nonzero exit and puts the whole of stdout in the message, which is right for
+     the CLI: its exit codes mean something went wrong and its sentence is the one to show. It is
+     wrong for a diagnostic probe. `ping` exits 2 when a host does not answer, which is the fact the
+     Connection Status window is asking for, and throwing it turned a one-word verdict into four
+     lines of raw ping output in the window (reported 2026-08-25).
+
+     The caller gets the exit code and reads the outcome itself.
+    */
+    func probe(_ arguments: [String]) async throws -> CLIResult {
+        try await execute(arguments)
+    }
+
     func run(_ arguments: [String]) async throws -> CLIResult {
+        let result = try await execute(arguments)
+        if result.exitCode != 0 {
+            let stdoutMessage = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CLIExecutionError(
+                exitCode: result.exitCode,
+                message: result.stderr.isEmpty ? stdoutMessage : result.stderr
+            )
+        }
+        return result
+    }
+
+    private func execute(_ arguments: [String]) async throws -> CLIResult {
         let process = Process()
         let fileManager = FileManager.default
         let executionDirectory = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -85,12 +112,7 @@ actor CLIRunner {
         let stdout = try Data(contentsOf: outputURL)
         let stderrData = try Data(contentsOf: errorURL)
         let stderr = String(decoding: stderrData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        let result = CLIResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
-        if result.exitCode != 0 {
-            let stdoutMessage = String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CLIExecutionError(exitCode: result.exitCode, message: stderr.isEmpty ? stdoutMessage : stderr)
-        }
-        return result
+        return CLIResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
     }
 }
 
