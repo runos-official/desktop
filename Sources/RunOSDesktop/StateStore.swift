@@ -53,6 +53,23 @@ final class StateStore: ObservableObject {
     }
 
     /*
+     Which of three things the VPN submenu is looking at, decided by the SESSION first.
+
+     Deciding on `vpn.running` was the defect: that is the tunnel INTERFACE, it stays up through a
+     session expiry, and so the submenu ticked a cluster as connected and offered to sign out of a
+     session that had already ended. Greying it stopped the clicks and changed nothing about the
+     claim; a disabled control is still a sentence, and that sentence was wrong.
+
+     `signedOut` therefore wins over a running tunnel, and covers the account-switch cause too.
+     Unknown state at first launch is NOT signedOut: nothing has been read yet, and saying "signed
+     out" then would be inventing a fact.
+    */
+    var vpnMenuMode: VPNMenuMode {
+        if signInRequired { return .signedOut }
+        return vpnStatus?.running == true ? .connected : .disconnected
+    }
+
+    /*
      Whether anything in the VPN submenu can still do what its label says.
 
      The submenu was gated on `vpn.running`, which is only the tunnel INTERFACE. An expired session
@@ -89,4 +106,14 @@ final class StateStore: ObservableObject {
         }
         return .off
     }
+}
+
+/// What the VPN submenu is showing. See `StateStore.vpnMenuMode` for why the session decides it.
+enum VPNMenuMode: Equatable {
+    /// A sign-in is owed. No clusters, no actions, and above all no tick over a dead path.
+    case signedOut
+    /// A live session on an up tunnel: the clusters, when the session ends, and Sign Out.
+    case connected
+    /// A live session with the tunnel down, or nothing read yet: the one useful action is Connect.
+    case disconnected
 }

@@ -172,33 +172,19 @@ struct MenuContentView: View {
     @ViewBuilder
     private var vpnMenuContent: some View {
         Menu("VPN") {
-            if let vpn = store.vpnStatus, vpn.running {
-                if vpn.connectableClusters.isEmpty {
-                    Text("No VPN clusters available")
-                } else {
-                    ForEach(vpn.connectableClusters) { cluster in
-                        let clusterLabel = MenuPresentation.clusterLabel(cluster)
-                        Toggle(isOn: Binding(
-                            get: { cluster.connected },
-                            set: { _ in
-                                let command = DesktopCommands.toggleCluster(
-                                    cluster.cid,
-                                    isConnected: cluster.connected
-                                )
-                                let message = cluster.connected
-                                    ? "Disconnecting \(clusterLabel)…"
-                                    : "Connecting \(clusterLabel)…"
-                                coordinator.perform(command, message: message)
-                            }
-                        )) {
-                            Text(clusterLabel)
-                        }
-                    }
-                }
+            switch store.vpnMenuMode {
+            case .signedOut:
+                // A STATE, not a control. The old contents said "Sign Out" for a session that had
+                // already ended, over a cluster ticked as connected while nothing routed. Both were
+                // claims, and greying them left the claims intact. What is true is this one line;
+                // the Sign In button above is the thing to do about it.
+                Text("Signed out")
+            case .connected:
+                vpnClusters
                 Divider()
                 // What the Sign Out button below is ending, and when it ends by itself. Sitting it
                 // next to that button is the point: both are about the session, not the clusters.
-                if let expiry = MenuPresentation.sessionExpiry(vpn.session, now: Date()) {
+                if let expiry = MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) {
                     Text(expiry)
                 }
                 // The one action that ends the 24-hour session; the next connect opens the
@@ -206,11 +192,37 @@ struct MenuContentView: View {
                 Button("Sign Out") {
                     coordinator.setVPN(enabled: false)
                 }
-            } else {
+            case .disconnected:
                 Button("Connect") {
                     coordinator.setVPN(enabled: true)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var vpnClusters: some View {
+        if let vpn = store.vpnStatus, !vpn.connectableClusters.isEmpty {
+            ForEach(vpn.connectableClusters) { cluster in
+                let clusterLabel = MenuPresentation.clusterLabel(cluster)
+                Toggle(isOn: Binding(
+                    get: { cluster.connected },
+                    set: { _ in
+                        let command = DesktopCommands.toggleCluster(
+                            cluster.cid,
+                            isConnected: cluster.connected
+                        )
+                        let message = cluster.connected
+                            ? "Disconnecting \(clusterLabel)…"
+                            : "Connecting \(clusterLabel)…"
+                        coordinator.perform(command, message: message)
+                    }
+                )) {
+                    Text(clusterLabel)
+                }
+            }
+        } else {
+            Text("No VPN clusters available")
         }
     }
 

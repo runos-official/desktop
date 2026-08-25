@@ -614,3 +614,69 @@ extension ModelTests {
         XCTAssertFalse(store.vpnControlsUsable)
     }
 }
+
+/*
+ Reported 2026-08-25: "it still says sign out, even if it is grayed, it still bothers me, it should
+ say signed out".
+
+ Greying the submenu stopped it being CLICKED and changed nothing about what it CLAIMED. It still
+ ticked a cluster as connected and still labelled a control "Sign Out" for a session that had
+ already ended. A disabled control is still a sentence, and that sentence was wrong.
+
+ The submenu has three modes, and which one it is in is decided by the SESSION first, never by the
+ tunnel interface.
+*/
+extension ModelTests {
+    @MainActor
+    private func mode(session: String, running: Bool, mismatch: Bool = false) throws -> VPNMenuMode {
+        let data = Data((#"{"schemaVersion":1,"running":"#
+            + (running ? "true" : "false")
+            + #","session":"# + session
+            + #","clusters":[{"cid":"c1","name":"One","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#).utf8)
+        let store = StateStore()
+        store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+        store.vpnSignInRequired = mismatch
+        return store.vpnMenuMode
+    }
+
+    @MainActor
+    func testAnExpiredSessionIsSignedOutEvenWhileTheTunnelIsUp() throws {
+        // The reported defect. `running` is the tunnel INTERFACE and it stays up through an expiry,
+        // so deciding on it drew ticks and a Sign Out over a session that had ended.
+        XCTAssertEqual(
+            try mode(session: #"{"present":false,"loginRequired":true}"#, running: true),
+            .signedOut
+        )
+    }
+
+    @MainActor
+    func testALiveSessionOnAnUpTunnelShowsTheClusters() throws {
+        XCTAssertEqual(
+            try mode(session: #"{"present":true,"loginRequired":false}"#, running: true),
+            .connected
+        )
+    }
+
+    @MainActor
+    func testALiveSessionOnADownTunnelOffersToConnect() throws {
+        XCTAssertEqual(
+            try mode(session: #"{"present":true,"loginRequired":false}"#, running: false),
+            .disconnected
+        )
+    }
+
+    @MainActor
+    func testAnAccountSwitchIsAlsoSignedOut() throws {
+        XCTAssertEqual(
+            try mode(session: #"{"present":true,"loginRequired":false}"#, running: true, mismatch: true),
+            .signedOut
+        )
+    }
+
+    @MainActor
+    func testNoVPNStatusAtAllIsNotSignedOut() throws {
+        // Nothing known yet, at first launch. Claiming "signed out" would be inventing a fact.
+        let store = StateStore()
+        XCTAssertEqual(store.vpnMenuMode, .disconnected)
+    }
+}
