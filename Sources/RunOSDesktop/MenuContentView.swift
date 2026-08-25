@@ -96,11 +96,6 @@ struct MenuContentView: View {
                 actionItems
             }
             .disabled(store.isBusy)
-            if store.canCancelOperation {
-                Button(store.cancelOperationLabel ?? "Cancel Operation", role: .cancel) {
-                    coordinator.cancelOperation()
-                }
-            }
             Divider()
             Button("Connection Status") {
                 ConnectionStatusWindowController.shared.show(vpn: store.vpnStatus)
@@ -145,7 +140,7 @@ struct MenuContentView: View {
             // person with a connected-looking VPN that dropped every packet.
             Text(MenuPresentation.signInPrompt(account: store.activeAccountId))
             Button("Sign In") {
-                coordinator.setVPN(enabled: true)
+                coordinator.beginSignIn()
             }
         }
         // Inside the last hour the expiry stops being reference and becomes something to do. It
@@ -194,7 +189,7 @@ struct MenuContentView: View {
                 }
             case .disconnected:
                 Button("Connect") {
-                    coordinator.setVPN(enabled: true)
+                    coordinator.beginSignIn()
                 }
             }
         }

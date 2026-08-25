@@ -149,6 +149,20 @@ final class RefreshCoordinator: ObservableObject {
         }
     }
 
+    /*
+     Open the sign-in window and let it drive the CLI.
+
+     Not `perform`: that captures output and shows a spinner, which is exactly what hid the device
+     id and the URL. The window streams the same command and shows both, then refreshes here when
+     the CLI exits 0.
+    */
+    func beginSignIn() {
+        guard !actionRunning else { return }
+        SignInWindowController.shared.show(runner: runner) { [weak self] in
+            Task { await self?.refresh() }
+        }
+    }
+
     func cancelOperation() {
         guard actionRunning, store.canCancelOperation else { return }
         store.operationMessage = store.cancellingOperationMessage ?? "Cancelling…"

@@ -680,3 +680,111 @@ extension ModelTests {
         XCTAssertEqual(store.vpnMenuMode, .disconnected)
     }
 }
+
+/*
+ The sign-in window reads `runos login --json` / `runos vpn up --json` as a stream of events. The
+ two facts it exists to show: the DEVICE ID, which the person compares against the browser page (a
+ code that does not match means the page is not the one the CLI opened), and the URL, which is the
+ only way in when the browser does not open.
+*/
+extension ModelTests {
+    func testDeviceCodeCarriesTheIDAndTheURL() {
+        let line = #"{"event":"device_code","deviceId":"a1b2c3","url":"https://console.example/account/connect-device/a1b2c3-tok","browserOpened":true}"#
+        XCTAssertEqual(
+            SignInEvent.parse(line),
+            .deviceCode(id: "a1b2c3", url: "https://console.example/account/connect-device/a1b2c3-tok", browserOpened: true)
+        )
+    }
+
+    func testAMissingBrowserOpenedReadsAsDidNotOpen() {
+        // The safe way round: it makes the window show the URL prominently rather than assume a
+        // browser the person cannot see.
+        let line = #"{"event":"device_code","deviceId":"a1b2c3","url":"https://x"}"#
+        XCTAssertEqual(SignInEvent.parse(line), .deviceCode(id: "a1b2c3", url: "https://x", browserOpened: false))
+    }
+
+    func testTheOtherEvents() {
+        XCTAssertEqual(SignInEvent.parse(#"{"event":"pending"}"#), .pending)
+        XCTAssertEqual(SignInEvent.parse(#"{"event":"authorized"}"#), .authorized)
+        XCTAssertEqual(
+            SignInEvent.parse(#"{"event":"error","reason":"expired","message":"authorization expired"}"#),
+            .failed(reason: "expired", message: "authorization expired")
+        )
+    }
+
+    func testAnErrorAlwaysHasSomethingToSayEvenIfTheCLISaidLittle() {
+        guard case .failed(let reason, let message)? = SignInEvent.parse(#"{"event":"error"}"#) else {
+            return XCTFail("an error event must still parse")
+        }
+        XCTAssertFalse(reason.isEmpty)
+        XCTAssertFalse(message.isEmpty)
+    }
+
+    func testUnknownAndMalformedLinesAreIGNORED() {
+        // The CLI may add an event this build has never heard of, and a sign-in must not break
+        // because of one. Nor may a stray log line or a blank line end the flow.
+        XCTAssertNil(SignInEvent.parse(#"{"event":"something_new","x":1}"#))
+        XCTAssertNil(SignInEvent.parse("not json at all"))
+        XCTAssertNil(SignInEvent.parse(""))
+        XCTAssertNil(SignInEvent.parse("   "))
+        // A device_code missing the very fields it exists for is not usable as one.
+        XCTAssertNil(SignInEvent.parse(#"{"event":"device_code","url":"https://x"}"#))
+        XCTAssertNil(SignInEvent.parse(#"{"event":"device_code","deviceId":"a1b2c3"}"#))
+        XCTAssertNil(SignInEvent.parse(#"{"event":"device_code","deviceId":"","url":"https://x"}"#))
+    }
+}
+
+/*
+ A pipe delivers whatever chunks it feels like, which is not lines. The device_code event is the
+ longest line in the sign-in stream and therefore the likeliest to be split across two reads, and it
+ is the one carrying the two facts the window exists to show.
+*/
+extension ModelTests {
+    private final class Sink: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lines: [String] = []
+        func append(_ line: String) {
+            lock.lock()
+            lines.append(line)
+            lock.unlock()
+        }
+        var collected: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return lines
+        }
+    }
+
+    private func collect(_ chunks: [String], finish: Bool = true) -> [String] {
+        let sink = Sink()
+        let buffer = LineBuffer { line in sink.append(line) }
+        chunks.forEach { buffer.append(Data($0.utf8)) }
+        if finish { buffer.finish() }
+        return sink.collected
+    }
+
+    func testALineSplitAcrossTwoReadsArrivesWhole() {
+        XCTAssertEqual(
+            collect([#"{"event":"device_"#, #"code","deviceId":"a1b2c3"}"# + "\n"]),
+            [#"{"event":"device_code","deviceId":"a1b2c3"}"#]
+        )
+    }
+
+    func testSeveralLinesInOneReadAllArrive() {
+        XCTAssertEqual(
+            collect(["{\"event\":\"pending\"}\n{\"event\":\"pending\"}\n{\"event\":\"authorized\"}\n"]),
+            ["{\"event\":\"pending\"}", "{\"event\":\"pending\"}", "{\"event\":\"authorized\"}"]
+        )
+    }
+
+    func testAPartialLineIsHeldUntilItsNewlineArrives() {
+        // Delivering it early would hand the parser a fragment, and the parser would correctly
+        // ignore it, losing the event entirely.
+        XCTAssertEqual(collect([#"{"event":"pen"#], finish: false), [])
+    }
+
+    func testTheLastLineArrivesEvenWithoutATrailingNewline() {
+        XCTAssertEqual(collect([#"{"event":"authorized"}"#]), [#"{"event":"authorized"}"#])
+        XCTAssertEqual(collect([""]), [])
+    }
+}

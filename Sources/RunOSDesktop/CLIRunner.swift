@@ -57,6 +57,63 @@ actor CLIRunner {
         return result
     }
 
+    /*
+     Run the CLI and deliver its stdout LINE BY LINE as it arrives.
+
+     `run` and `probe` both wait for the process to exit and then read a file, which is right for a
+     command that produces one answer. The browser sign-in produces a conversation: a device id to
+     check against the browser, a URL to fall back on, and a status that changes while a person
+     watches. Waiting for exit would deliver all of that after it stopped mattering.
+
+     Cancelling the task terminates the process, which is what the window's Cancel button is: there
+     is no other way to stop a poll loop that is waiting on a person.
+    */
+    func stream(
+        _ arguments: [String],
+        onLine: @escaping @Sendable (String) -> Void
+    ) async throws -> Int32 {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.standardOutput = output
+        // Kept separate and DISCARDED here. The CLI writes prose to stderr during this flow ("This
+        // VPN session needs a fresh sign-in."), and mixing it into the line stream would hand the
+        // parser text that is not an event.
+        process.standardError = FileHandle.nullDevice
+
+        // Bytes arrive in whatever chunks the pipe gives, which is not lines. The remainder is held
+        // until its newline turns up, so a JSON object split across two reads is not two broken ones.
+        let pending = LineBuffer(onLine: onLine)
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty { return }
+            pending.append(data)
+        }
+
+        try Task.checkCancellation()
+        let exitCode: Int32 = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
+                process.terminationHandler = { finished in
+                    continuation.resume(returning: finished.terminationStatus)
+                }
+                do {
+                    try process.run()
+                    if Task.isCancelled { process.terminate() }
+                } catch {
+                    process.terminationHandler = nil
+                    continuation.resume(throwing: error)
+                }
+            }
+        } onCancel: {
+            if process.isRunning { process.terminate() }
+        }
+
+        output.fileHandleForReading.readabilityHandler = nil
+        pending.finish()
+        return exitCode
+    }
+
     private func execute(_ arguments: [String]) async throws -> CLIResult {
         let process = Process()
         let fileManager = FileManager.default
@@ -144,5 +201,45 @@ enum CLIPathResolver {
             exitCode: -1,
             message: "RunOS Desktop cannot find the RunOS CLI. Install or update the CLI, then run 'runos desktop install'."
         )
+    }
+}
+
+/*
+ Splits a byte stream into lines, holding a partial line until its newline arrives.
+
+ A pipe delivers whatever chunks it feels like, which is not lines. Without this a JSON object split
+ across two reads becomes two unparseable fragments, and the one event that matters most, the device
+ code, is the longest line and so the likeliest to be split.
+*/
+final class LineBuffer: @unchecked Sendable {
+    private let onLine: @Sendable (String) -> Void
+    private let lock = NSLock()
+    private var buffer = Data()
+
+    init(onLine: @escaping @Sendable (String) -> Void) {
+        self.onLine = onLine
+    }
+
+    func append(_ data: Data) {
+        var complete: [String] = []
+        lock.lock()
+        buffer.append(data)
+        while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+            let line = buffer[buffer.startIndex..<newline]
+            buffer.removeSubrange(buffer.startIndex...newline)
+            complete.append(String(decoding: line, as: UTF8.self))
+        }
+        lock.unlock()
+        complete.forEach(onLine)
+    }
+
+    /// Deliver whatever is left when the process exits without a trailing newline.
+    func finish() {
+        lock.lock()
+        let rest = buffer
+        buffer = Data()
+        lock.unlock()
+        guard !rest.isEmpty else { return }
+        onLine(String(decoding: rest, as: UTF8.self))
     }
 }

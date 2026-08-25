@@ -13,6 +13,8 @@
 		A10000000000000000000005 /* RefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* RefreshCoordinator.swift */; };
 		A10000000000000000000006 /* LoginItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* LoginItemController.swift */; };
 		A10000000000000000000020 /* StartupConnectController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000020 /* StartupConnectController.swift */; };
+		A1000000000000000000000043 /* SignInEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000043 /* SignInEvent.swift */; };
+		A1000000000000000000000044 /* SignInWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000044 /* SignInWindow.swift */; };
 		A10000000000000000000042 /* ConnectionStatusWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000042 /* ConnectionStatusWindow.swift */; };
 		A10000000000000000000041 /* ConnectionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000041 /* ConnectionDiagnostics.swift */; };
 		A10000000000000000000007 /* MenuContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* MenuContentView.swift */; };
@@ -35,6 +37,8 @@
 		B10000000000000000000005 /* RefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshCoordinator.swift; sourceTree = "<group>"; };
 		B10000000000000000000006 /* LoginItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemController.swift; sourceTree = "<group>"; };
 		B10000000000000000000020 /* StartupConnectController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupConnectController.swift; sourceTree = "<group>"; };
+		B1000000000000000000000043 /* SignInEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInEvent.swift; sourceTree = "<group>"; };
+		B1000000000000000000000044 /* SignInWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInWindow.swift; sourceTree = "<group>"; };
 		B10000000000000000000042 /* ConnectionStatusWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusWindow.swift; sourceTree = "<group>"; };
 		B10000000000000000000041 /* ConnectionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionDiagnostics.swift; sourceTree = "<group>"; };
 		B10000000000000000000007 /* MenuContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuContentView.swift; sourceTree = "<group>"; };
@@ -59,7 +63,7 @@
 		G10000000000000000000003 /* Products */ = {isa = PBXGroup; children = (B10000000000000000000013 /* RunOS Desktop.app */, B10000000000000000000014 /* RunOSDesktopTests.xctest */); name = Products; sourceTree = "<group>"; };
 		G10000000000000000000004 /* Tests */ = {isa = PBXGroup; children = (G10000000000000000000007 /* RunOSDesktopTests */); path = Tests; sourceTree = "<group>"; };
 		G10000000000000000000005 /* Frameworks */ = {isa = PBXGroup; children = (B10000000000000000000015 /* XCTest.framework */); name = Frameworks; sourceTree = "<group>"; };
-		G10000000000000000000006 /* RunOSDesktop */ = {isa = PBXGroup; children = (B10000000000000000000001, B10000000000000000000002, B10000000000000000000003, B10000000000000000000004, B10000000000000000000005, B10000000000000000000006, B10000000000000000000007, B10000000000000000000008, B10000000000000000000009, B10000000000000000000012, B10000000000000000000020, B10000000000000000000041, B10000000000000000000042); path = RunOSDesktop; sourceTree = "<group>"; };
+		G10000000000000000000006 /* RunOSDesktop */ = {isa = PBXGroup; children = (B10000000000000000000001, B10000000000000000000002, B10000000000000000000003, B10000000000000000000004, B10000000000000000000005, B10000000000000000000006, B10000000000000000000007, B10000000000000000000008, B10000000000000000000009, B10000000000000000000012, B10000000000000000000020, B10000000000000000000041, B10000000000000000000042, B1000000000000000000000043, B1000000000000000000000044); path = RunOSDesktop; sourceTree = "<group>"; };
 		G10000000000000000000007 /* RunOSDesktopTests */ = {isa = PBXGroup; children = (B10000000000000000000010, B10000000000000000000011); path = RunOSDesktopTests; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
@@ -78,7 +82,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		I10000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000007, A10000000000000000000008, A10000000000000000000020, A10000000000000000000041, A10000000000000000000042); runOnlyForDeploymentPostprocessing = 0; };
+		I10000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000007, A10000000000000000000008, A10000000000000000000020, A10000000000000000000041, A10000000000000000000042, A1000000000000000000000043, A1000000000000000000000044); runOnlyForDeploymentPostprocessing = 0; };
 		I10000000000000000000002 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000010, A10000000000000000000011); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
