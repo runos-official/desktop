@@ -29,16 +29,6 @@ enum MenuPresentation {
         "Sign in to use the VPN with \(accountName(account))."
     }
 
-    /*
-     What the menu says when the session has simply ended.
-
-     A state, in one line, with the button beside it. It deliberately does not name a command to
-     type or do arithmetic about hours: both belong to a terminal, and there is a control here.
-    */
-    static func signedOutPrompt() -> String {
-        "You are currently signed out."
-    }
-
     private static func accountName(_ id: String?) -> String {
         let trimmed = (id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "another account" : trimmed
@@ -141,19 +131,21 @@ struct MenuContentView: View {
             Text(operation)
         }
         if store.signInRequired {
-            // The app has already tried and cannot do this one: Conductor wants a fresh sign-in
-            // and an unattended run may not open a browser. So this is the only thing said, and
-            // it is a thing to do rather than a state to explain.
-            //
-            // Driven by `signInRequired`, not `vpnSignInRequired`: a session that simply EXPIRED
-            // reached neither this message nor the button, so the app tinted its icon and left the
-            // person with a connected-looking VPN that dropped every packet.
-            // Two causes, two sentences. An expired session is "you are signed out"; an account
-            // switch the app could not complete is about WHICH account, and collapsing them would
-            // lose the part that matters in the second case.
-            Text(store.cliSessionExpired
-                ? MenuPresentation.signedOutPrompt()
-                : MenuPresentation.signInPrompt(account: store.activeAccountId))
+            /*
+             NO LINE ABOVE THE BUTTON when the session has simply ended.
+
+             "You are currently signed out." over a button reading "Sign In" says the same thing
+             twice, and the first time in greyed-out text that cannot be acted on. The button IS
+             the statement: an app offering to sign you in is not one you are signed in to.
+
+             An account switch the app could not finish is the one case that still needs a
+             sentence, because the button alone cannot say WHICH account, and that is the entire
+             content of that situation. Driven by `signInRequired`, not `vpnSignInRequired`, so an
+             expired session reaches the button at all.
+            */
+            if !store.cliSessionExpired {
+                Text(MenuPresentation.signInPrompt(account: store.activeAccountId))
+            }
             Button("Sign In") {
                 coordinator.beginSignIn()
             }

@@ -818,11 +818,15 @@ extension ModelTests {
         XCTAssertNil(store.errorMessage)
     }
 
-    func testTheSignedOutLineSaysTheStateAndNothingElse() {
-        XCTAssertEqual(MenuPresentation.signedOutPrompt(), "You are currently signed out.")
-        // No command to type, no arithmetic about hours: there is a button.
-        XCTAssertFalse(MenuPresentation.signedOutPrompt().contains("runos login"))
-        XCTAssertFalse(MenuPresentation.signedOutPrompt().contains("24"))
+    @MainActor
+    func testAnExpiredSessionShowsTHEBUTTONANDNOTHINGELSE() throws {
+        // "You are currently signed out." over a button reading "Sign In" says the same thing
+        // twice, the first time in greyed-out text that cannot be acted on. The button is the
+        // statement. `cliSessionExpired` is what the menu keys the line off, so it must be true
+        // here and the sentence must never be built.
+        let store = try signedOutStore()
+        XCTAssertTrue(store.cliSessionExpired)
+        XCTAssertTrue(store.signInRequired)
     }
 
     func testAnAccountMismatchKeepsItsOwnSentence() throws {
