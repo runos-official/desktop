@@ -111,11 +111,12 @@ final class SignInRunner: ObservableObject {
 
     fileprivate func apply(_ event: SignInEvent) {
         switch event {
-        case .deviceCode(let id, let link, let opened):
+        case .deviceCode(let id, let link):
             deviceID = id
             url = link
-            browserOpened = opened
             phase = .waiting
+        case .browserOpened(let opened):
+            browserOpened = opened
         case .pending:
             if phase == .starting { phase = .waiting }
         case .authorized:

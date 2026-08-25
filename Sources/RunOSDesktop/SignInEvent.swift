@@ -15,8 +15,10 @@ import Foundation
  and a sign-in must not break because of one.
 */
 enum SignInEvent: Equatable {
-    /// Fires once. `id` is what the person checks against the browser.
-    case deviceCode(id: String, url: String, browserOpened: Bool)
+    /// Fires once, BEFORE any browser opens, so the code is on screen to compare against.
+    case deviceCode(id: String, url: String)
+    /// Whether there is now a browser to look at. Separate, because it can only be known after.
+    case browserOpened(Bool)
     /// The browser has not authorised yet. Expected, repeatedly, and not a problem.
     case pending
     /// The browser authorised. The CLI is now exchanging the token.
@@ -37,9 +39,11 @@ enum SignInEvent: Equatable {
                   let url = (object["url"] as? String)?.trimmingCharacters(in: .whitespaces),
                   !id.isEmpty, !url.isEmpty
             else { return nil }
-            // Absent reads as "did not open", which is the safe way round: it makes the app show
-            // the URL prominently rather than assume a browser the person cannot see.
-            return .deviceCode(id: id, url: url, browserOpened: object["browserOpened"] as? Bool ?? false)
+            return .deviceCode(id: id, url: url)
+        case "browser_opened":
+            // Absent reads as "did not open", the safe way round: it makes the app show the URL
+            // prominently rather than assume a browser the person cannot see.
+            return .browserOpened(object["browserOpened"] as? Bool ?? false)
         case "pending":
             return .pending
         case "authorized":

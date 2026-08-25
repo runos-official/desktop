@@ -689,18 +689,21 @@ extension ModelTests {
 */
 extension ModelTests {
     func testDeviceCodeCarriesTheIDAndTheURL() {
-        let line = #"{"event":"device_code","deviceId":"a1b2c3","url":"https://console.example/account/connect-device/a1b2c3-tok","browserOpened":true}"#
+        // It arrives BEFORE anything about a browser, so the window can show the code to compare
+        // against before a browser takes focus.
+        let line = #"{"event":"device_code","deviceId":"a1b2c3","url":"https://console.example/account/connect-device/a1b2c3-tok"}"#
         XCTAssertEqual(
             SignInEvent.parse(line),
-            .deviceCode(id: "a1b2c3", url: "https://console.example/account/connect-device/a1b2c3-tok", browserOpened: true)
+            .deviceCode(id: "a1b2c3", url: "https://console.example/account/connect-device/a1b2c3-tok")
         )
     }
 
-    func testAMissingBrowserOpenedReadsAsDidNotOpen() {
-        // The safe way round: it makes the window show the URL prominently rather than assume a
-        // browser the person cannot see.
-        let line = #"{"event":"device_code","deviceId":"a1b2c3","url":"https://x"}"#
-        XCTAssertEqual(SignInEvent.parse(line), .deviceCode(id: "a1b2c3", url: "https://x", browserOpened: false))
+    func testWhetherABrowserOpenedIsItsOwnEvent() {
+        // It can only be known after the attempt, which is after the code is on screen.
+        XCTAssertEqual(SignInEvent.parse(#"{"event":"browser_opened","browserOpened":true}"#), .browserOpened(true))
+        // Absent reads as "did not open", the safe way round: the window shows the URL prominently
+        // rather than assuming a browser the person cannot see.
+        XCTAssertEqual(SignInEvent.parse(#"{"event":"browser_opened"}"#), .browserOpened(false))
     }
 
     func testTheOtherEvents() {
