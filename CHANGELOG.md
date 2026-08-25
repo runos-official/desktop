@@ -2,6 +2,10 @@
 
 ## v0.2.0
 
+- Show when the VPN session expires, in the VPN menu and, inside the last hour, in the status.
+- Ask for a sign-in when the VPN session has expired, not only after an account switch.
+- Report a failed ping as "no reply" instead of the whole of ping's output.
+- Say "VPN session expired" in the Connection Status window rather than running tests that cannot pass.
 - Keep the VPN session when a cluster is toggled off; only Sign Out ends it.
 - Show tunnel and traffic statistics on the About panel.
 - Add a last-hour traffic chart in five-minute buckets, with a total.
