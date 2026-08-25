@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.1
+
+- Offer to install the RunOS VPN service when it is missing, instead of failing quietly. `runos desktop install` writes the app and not the root service that carries the tunnel, so a fresh machine could click Connect and see nothing happen at all.
+- Ask for the administrator password through the standard macOS prompt, and pass the installing person's identity to the CLI, so the control socket belongs to a group they are actually in. Without it the service installed, started, and was unreachable by the person who installed it.
+- Stop reporting every VPN failure as "sign in required". A missing service sent people to a browser to fix a daemon that was never installed.
+- Stop discarding the CLI's explanation when reading VPN status. It was thrown away, so the menu showed "disconnected" and said nothing.
+- Check every cluster at the same time in the Connection Status window, rather than one after another. An unreachable cluster used to make every cluster after it wait out its timeouts.
+
 ## v0.2.0
 
 - Add a Sign In window that shows the device code, the verification link and live sign-in status.

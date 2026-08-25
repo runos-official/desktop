@@ -62,7 +62,21 @@ final class RefreshCoordinator: ObservableObject {
                 return
             }
             let statusResult = try await runner.run(["status", "--json"])
-            let vpnResult = try? await runner.run(["vpn", "status", "--json"])
+            /*
+             NOT `try?`. Discarding this error is what made a missing VPN service invisible: the
+             status became nil, the menu rendered "disconnected", and the CLI's own sentence naming
+             the daemon and its remedy was thrown away (reported 2026-08-25). The failure is now
+             classified: a missing service is a state with a button, anything else is an error.
+            */
+            var vpnResult: CLIResult?
+            do {
+                vpnResult = try await runner.run(["vpn", "status", "--json"])
+                update(\.vpnServiceMissing, to: false)
+            } catch {
+                let missing = VPNService.isMissing(error)
+                update(\.vpnServiceMissing, to: missing)
+                if !missing { update(\.errorMessage, to: error.localizedDescription) }
+            }
             let status = try statusResult.decode(CLIStatus.self)
             let vpn = try? vpnResult?.decode(VPNStatus.self)
             update(\.cliStatus, to: status)
@@ -115,7 +129,16 @@ final class RefreshCoordinator: ObservableObject {
             _ = try await runner.run(DesktopCommands.connectVPNAtStartup())
             update(\.vpnSignInRequired, to: false)
         } catch {
-            update(\.vpnSignInRequired, to: true)
+            /*
+             NOT EVERY FAILURE IS A SIGN-IN. This caught all of them and asked for a sign-in, so a
+             machine with no VPN service sent the person to a browser to fix a missing daemon and
+             appeared to do nothing when they came back.
+            */
+            if VPNService.isMissing(error) {
+                update(\.vpnServiceMissing, to: true)
+            } else {
+                update(\.vpnSignInRequired, to: true)
+            }
         }
     }
 
@@ -164,6 +187,32 @@ final class RefreshCoordinator: ObservableObject {
         guard !actionRunning else { return }
         SignInWindowController.shared.show(runner: runner) { [weak self] in
             Task { await self?.refresh() }
+        }
+    }
+
+    /*
+     Install the VPN system service, the one thing `runos desktop install` cannot do for itself.
+
+     The daemon runs as root, so this is the single point in the app that asks for an administrator
+     password, and it asks through the OS rather than a box of its own (see VPNService.install).
+     Refresh follows on success, so the menu goes straight from the offer to a usable VPN without
+     the person doing anything else.
+    */
+    func installVPNService() {
+        guard !actionRunning else { return }
+        actionRunning = true
+        store.operationMessage = "Installing the RunOS VPN service…"
+        store.errorMessage = nil
+        actionTask = Task {
+            do {
+                _ = try await VPNService.install(cliPath: CLIPathResolver.resolve().path)
+                store.vpnServiceMissing = false
+            } catch {
+                store.errorMessage = error.localizedDescription
+            }
+            store.operationMessage = nil
+            actionRunning = false
+            await refresh(allowDuringAction: true)
         }
     }
 

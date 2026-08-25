@@ -25,6 +25,16 @@ final class StateStore: ObservableObject {
     @Published var vpnSignInRequired = false
 
     /*
+     The VPN system service is not installed, so nothing can carry a tunnel.
+
+     A SEPARATE STATE FROM signInRequired, because the two remedies share nothing. `runos desktop
+     install` writes the app and not the root LaunchDaemon the tunnel needs, so this is the ordinary
+     condition of a fresh machine rather than an error. Reported as "sign in required" until
+     2026-08-25, which sent people to a browser to fix a missing daemon.
+    */
+    @Published var vpnServiceMissing = false
+
+    /*
      Whether the person must sign in again before the VPN carries anything.
 
      TWO causes, one prompt. `vpnSignInRequired` is the account-follow path: the app tried to switch
@@ -85,7 +95,7 @@ final class StateStore: ObservableObject {
      button sits directly above the submenu; signing in mints a new session and rebuilds the tunnel,
      so the stale one does not need tearing down by hand first.
     */
-    var vpnControlsUsable: Bool { !signInRequired }
+    var vpnControlsUsable: Bool { !signInRequired && !vpnServiceMissing }
 
     var activeAccountId: String? { cliStatus?.accountId }
     var isBusy: Bool { operationMessage != nil }

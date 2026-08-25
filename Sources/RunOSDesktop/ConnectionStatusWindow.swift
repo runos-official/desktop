@@ -27,11 +27,23 @@ final class ConnectionStatusRunner: ObservableObject {
     @Published private(set) var steps: [DiagnosticStep] = []
     @Published private(set) var isRunning = false
 
+    /*
+     The cluster sections, in the order they are shown.
+
+     PUBLISHED SEPARATELY rather than derived from `steps`, because the clusters are now tested
+     CONCURRENTLY. Deriving section order from first appearance made it a race: whichever cluster's
+     first ping returned first went to the top, so the same window could order itself differently on
+     two consecutive runs. The order is a property of the cluster list, which is known before any
+     packet is sent, so it is settled there.
+    */
+    @Published private(set) var clusterOrder: [String] = []
+
     private var task: Task<Void, Never>?
 
     func start(vpn: VPNStatus?) {
         task?.cancel()
         steps = []
+        clusterOrder = []
         guard let vpn, vpn.running else {
             steps = [DiagnosticStep(id: "off", cluster: "", title: "VPN is not connected", state: .failed("Connect the VPN first"))]
             return
@@ -50,9 +62,23 @@ final class ConnectionStatusRunner: ObservableObject {
             return
         }
         isRunning = true
+        clusterOrder = clusters.map { MenuPresentation.clusterLabel(name: $0.name, cid: $0.cid) }
+        /*
+         EVERY CLUSTER AT ONCE. Sequentially, the window took the SUM of every cluster's checks, and
+         each cluster is a handful of pings with their own timeouts: an unreachable one made every
+         cluster after it wait out its failure before starting. A person looking at the window is
+         asking "which of these is broken", and the slow answer is the one they most need.
+
+         Concurrency is safe without a lock because this type is @MainActor: the child tasks
+         interleave at their await points, and every mutation of `steps` runs on the main actor.
+         Ordering within a cluster is unaffected, since each cluster's own steps still run in
+         sequence inside its task.
+        */
         task = Task { [weak self] in
-            for cluster in clusters {
-                await self?.testCluster(cluster)
+            await withTaskGroup(of: Void.self) { group in
+                for cluster in clusters {
+                    group.addTask { await self?.testCluster(cluster) }
+                }
             }
             self?.isRunning = false
         }
@@ -193,8 +219,14 @@ private struct ConnectionStatusView: View {
     @ObservedObject var runner: ConnectionStatusRunner
     let onClose: () -> Void
 
+    /*
+     The settled order from the runner, plus any section the runner did not name.
+
+     The unnamed ones are the single-row outcomes ("VPN is not connected", "VPN session", "No
+     connected clusters"), which carry an empty cluster and are not in clusterOrder.
+    */
     private var clusters: [String] {
-        var seen: [String] = []
+        var seen = runner.clusterOrder
         for step in runner.steps where !seen.contains(step.cluster) {
             seen.append(step.cluster)
         }

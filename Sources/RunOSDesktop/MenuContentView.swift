@@ -130,6 +130,19 @@ struct MenuContentView: View {
         if let operation = store.operationMessage {
             Text(operation)
         }
+        /*
+         THE SERVICE IS MISSING, which is a thing to install and not a thing to explain.
+
+         Shown ABOVE the sign-in block because it is the more fundamental gap: signing in cannot
+         help a machine with no daemon to carry the tunnel. `runos desktop install` never writes it,
+         so this is the ordinary state of a fresh machine.
+        */
+        if store.vpnServiceMissing {
+            Text("The RunOS VPN service is not installed, so the VPN cannot connect.")
+            Button("Install VPN Service…") {
+                coordinator.installVPNService()
+            }
+        }
         if store.signInRequired {
             /*
              NO LINE ABOVE THE BUTTON when the session has simply ended.
