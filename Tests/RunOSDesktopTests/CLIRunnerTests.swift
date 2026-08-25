@@ -79,6 +79,20 @@ final class CLIRunnerTests: XCTestCase {
         }
         let store = StateStore()
         let runner = try CLIRunner(executableURL: URL(filePath: path))
+        /*
+         SKIP UNLESS THE BINARY IS ACTUALLY A DEVELOPMENT BUILD.
+
+         The guard above only asks whether a CLI is installed, then asserts `cliDevelopment`. On any
+         machine holding a RELEASED CLI, which is every machine that has run `runos update`, this
+         test failed on a fact about the installed binary rather than about the app. It blocked the
+         release gate on 2026-08-25 with the CLI at 1.16.0. The name says "when configured", so
+         being configured has to include being the kind of build the assertions describe.
+        */
+        let version = try await runner.run(["--version"])
+        let versionText = String(decoding: version.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard VersionComparator.compatibility(versionText, minimum: "1.15.0") == .development else {
+            throw XCTSkip("The CLI at \(path) is '\(versionText)', not a development build. Set RUNOS_LIVE_CLI to one.")
+        }
         let coordinator = RefreshCoordinator(store: store, runner: runner)
 
         await coordinator.refresh()
