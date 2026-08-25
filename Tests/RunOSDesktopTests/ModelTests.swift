@@ -847,3 +847,53 @@ extension ModelTests {
         XCTAssertEqual(store.errorMessage, "the daemon is not running")
     }
 }
+
+/*
+ Reported 2026-08-25: "the runos vpn icon is fully lit even though I am disconnected, it should be
+ grayed out like I am not connected to anything".
+
+ `imageName` greyed out for `.off` alone, so `.attention` reused the LIT icon and was
+ indistinguishable from `.connected`. Signed out, tunnel down, nothing routing: the menu bar still
+ said the VPN was carrying traffic.
+
+ The lit icon means ONE thing: the VPN is carrying something. `menuBarState` already holds that line
+ for `.connected`, which demands a cluster connected AND reachable. The icon has to hold it too.
+*/
+extension ModelTests {
+    func testOnlyAWorkingConnectionLightsTheIcon() {
+        XCTAssertEqual(
+            MenuBarIconAnimation.imageName(state: .connected, isActive: false, reduceMotion: false, frame: 0),
+            "MenuBarIcon"
+        )
+        // Everything else is "not carrying anything", and must look it.
+        XCTAssertEqual(
+            MenuBarIconAnimation.imageName(state: .attention, isActive: false, reduceMotion: false, frame: 0),
+            "MenuBarIconOff"
+        )
+        XCTAssertEqual(
+            MenuBarIconAnimation.imageName(state: .off, isActive: false, reduceMotion: false, frame: 0),
+            "MenuBarIconOff"
+        )
+    }
+
+    func testAnOperationInFlightStillAnimates() {
+        // `isActive` is about work happening right now and is a different axis from whether the
+        // tunnel carries traffic. Greying `.attention` must not silence the activity animation.
+        let frames = (0..<3).map {
+            MenuBarIconAnimation.imageName(state: .attention, isActive: true, reduceMotion: false, frame: $0)
+        }
+        XCTAssertEqual(frames, ["MenuBarActivity1", "MenuBarActivity2", "MenuBarActivity3"])
+    }
+
+    @MainActor
+    func testBeingSignedOutDoesNotLightTheIcon() throws {
+        let data = Data(#"{"schemaVersion":1,"authenticated":false,"accountId":"acct","sessionExpired":true}"#.utf8)
+        let store = StateStore()
+        store.cliStatus = try JSONDecoder.runOS.decode(CLIStatus.self, from: data)
+        XCTAssertEqual(store.menuBarState, .attention)
+        XCTAssertEqual(
+            MenuBarIconAnimation.imageName(state: store.menuBarState, isActive: false, reduceMotion: false, frame: 0),
+            "MenuBarIconOff"
+        )
+    }
+}

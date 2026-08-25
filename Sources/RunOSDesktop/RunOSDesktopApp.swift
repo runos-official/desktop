@@ -53,7 +53,22 @@ enum MenuBarIconAnimation {
         guard !isActive else {
             return reduceMotion ? "MenuBarIcon" : frameNames[frame % frameNames.count]
         }
-        return state == .off ? "MenuBarIconOff" : "MenuBarIcon"
+        /*
+         THE LIT ICON MEANS ONE THING: the VPN is carrying something.
+
+         It used to grey out for `.off` alone, so `.attention` reused the lit icon and was
+         indistinguishable from `.connected`. Signed out, tunnel down, every cluster dead: the menu
+         bar still said the VPN was working (reported 2026-08-25).
+
+         `menuBarState` already holds that line for `.connected`, which demands a cluster connected
+         AND reachable rather than merely a tunnel interface being up. The icon has to hold it too,
+         or the strictest state in the app is undone by the one pixel most people actually look at.
+
+         `.attention` and `.off` now look the same, and that is the right trade: they are both "not
+         carrying anything", and conflating those two is far cheaper than conflating attention with
+         CONNECTED, which is not a shade of meaning but a false statement.
+        */
+        return state == .connected ? "MenuBarIcon" : "MenuBarIconOff"
     }
 }
 
