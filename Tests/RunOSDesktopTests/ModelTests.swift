@@ -566,3 +566,51 @@ extension ModelTests {
         XCTAssertFalse(store.sessionEndingSoon(now: Date()))
     }
 }
+
+/*
+ Reported 2026-08-25, from the menu with an expired session open: "i am currently signed out, but
+ the checkmark is still there and there is a sign out".
+
+ The VPN submenu was gated on `vpn.running`, which is only the tunnel INTERFACE. An expired session
+ leaves that interface up, so the submenu drew every cluster as a ticked toggle and offered to sign
+ out of a session that had already ended. The tick is the worse half: it is the app asserting a
+ cluster is connected and carrying traffic while nothing routes.
+*/
+extension ModelTests {
+    @MainActor
+    private func store(session: String, clusterConnected: Bool = true) throws -> StateStore {
+        let data = Data((#"{"schemaVersion":1,"running":true,"session":"#
+            + session
+            + #","clusters":[{"cid":"c1","name":"One","connected":"#
+            + (clusterConnected ? "true" : "false")
+            + #","reachable":true,"peerUp":true,"peeredWith":[]}]}"#).utf8)
+        let store = StateStore()
+        store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+        return store
+    }
+
+    @MainActor
+    func testVPNControlsAreUnusableWhileASignInIsOwed() throws {
+        // The tunnel is up and the cluster still reads connected: that is exactly the state that
+        // drew a tick over a dead path. The controls must not be reachable to assert it.
+        let expired = try store(session: #"{"present":false,"loginRequired":true}"#)
+        XCTAssertFalse(expired.vpnControlsUsable)
+        XCTAssertTrue(expired.signInRequired)
+    }
+
+    @MainActor
+    func testVPNControlsWorkWithALiveSession() throws {
+        let live = try store(session: #"{"present":true,"loginRequired":false}"#)
+        XCTAssertTrue(live.vpnControlsUsable)
+        XCTAssertFalse(live.signInRequired)
+    }
+
+    @MainActor
+    func testAnAccountSwitchAlsoLocksTheVPNControls() throws {
+        // The other cause of `signInRequired`. One rule covers both: until the sign-in happens,
+        // nothing in that submenu can do what its label says.
+        let store = try store(session: #"{"present":true,"loginRequired":false}"#)
+        store.vpnSignInRequired = true
+        XCTAssertFalse(store.vpnControlsUsable)
+    }
+}

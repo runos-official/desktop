@@ -162,6 +162,15 @@ struct MenuContentView: View {
 
     @ViewBuilder
     private var vpnMenu: some View {
+        vpnMenuContent
+            // Disabled, not hidden. A person who opens this menu looking for the VPN should find it
+            // where it always is and see that it is unavailable, rather than watch it vanish and
+            // wonder what else the app has lost. The Sign In button above says what to do.
+            .disabled(!store.vpnControlsUsable)
+    }
+
+    @ViewBuilder
+    private var vpnMenuContent: some View {
         Menu("VPN") {
             if let vpn = store.vpnStatus, vpn.running {
                 if vpn.connectableClusters.isEmpty {

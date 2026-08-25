@@ -52,6 +52,21 @@ final class StateStore: ObservableObject {
         return remaining > 0 && remaining <= 3600
     }
 
+    /*
+     Whether anything in the VPN submenu can still do what its label says.
+
+     The submenu was gated on `vpn.running`, which is only the tunnel INTERFACE. An expired session
+     leaves that interface up, so the menu drew every cluster as a ticked toggle and offered to
+     sign out of a session that had already ended (reported 2026-08-25). The tick is the worse
+     half: it is the app asserting a cluster is connected and carrying traffic while nothing routes,
+     which is the same defect the dead-connection rule exists to prevent, arriving by another door.
+
+     Nobody is trapped by this. The only useful action in that state is a sign-in, and the Sign In
+     button sits directly above the submenu; signing in mints a new session and rebuilds the tunnel,
+     so the stale one does not need tearing down by hand first.
+    */
+    var vpnControlsUsable: Bool { !signInRequired }
+
     var activeAccountId: String? { cliStatus?.accountId }
     var isBusy: Bool { operationMessage != nil }
     var updateActionTitle: String {
