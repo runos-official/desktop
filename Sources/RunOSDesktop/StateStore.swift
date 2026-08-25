@@ -37,6 +37,21 @@ final class StateStore: ObservableObject {
         vpnSignInRequired || vpnStatus?.session.loginRequired == true
     }
 
+    /*
+     Whether the session ends soon enough to be worth interrupting for.
+
+     In the VPN submenu the expiry is reference, and a person looks it up. Inside the last hour it
+     is something to act on, so it moves to the top-level status where it cannot be missed. One
+     hour because a sign-in takes a browser round trip, and being told with five minutes left is
+     being told too late.
+    */
+    func sessionEndingSoon(now: Date) -> Bool {
+        guard let session = vpnStatus?.session, session.present, !session.loginRequired,
+              let expiresAt = session.expiresAt else { return false }
+        let remaining = expiresAt.timeIntervalSince(now)
+        return remaining > 0 && remaining <= 3600
+    }
+
     var activeAccountId: String? { cliStatus?.accountId }
     var isBusy: Bool { operationMessage != nil }
     var updateActionTitle: String {

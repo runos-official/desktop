@@ -478,3 +478,91 @@ extension ModelTests {
         XCTAssertEqual(store.menuBarState, .connected)
     }
 }
+
+/*
+ Knowing WHEN the session ends, so a 24-hour expiry is a thing you can plan around rather than a
+ morning of failed pings. Asked for after the 2026-08-25 expiry: the app said nothing until
+ everything was already broken.
+*/
+extension ModelTests {
+    private static let utc = TimeZone(identifier: "UTC")!
+
+    private func expiry(_ isoExpiry: String, now isoNow: String) -> String? {
+        let session = VPNSession(
+            present: true,
+            expiresAt: ISO8601DateFormatter().date(from: isoExpiry),
+            loginRequired: false
+        )
+        return MenuPresentation.sessionExpiry(
+            session,
+            now: ISO8601DateFormatter().date(from: isoNow)!,
+            timeZone: Self.utc
+        )
+    }
+
+    func testSessionExpiryStatesBothHowLongAndWhen() {
+        // Both halves earn their place: "in 21h" is what you plan around, "09:59" is what you
+        // recognise tomorrow morning when it has already happened.
+        XCTAssertEqual(
+            expiry("2026-08-26T09:59:00Z", now: "2026-08-25T12:30:00Z"),
+            "Session expires in 21h (09:59)"
+        )
+    }
+
+    func testSessionExpiryDropsToMinutesInsideTheLastHour() {
+        XCTAssertEqual(
+            expiry("2026-08-25T13:13:00Z", now: "2026-08-25T12:30:00Z"),
+            "Session expires in 43m (13:13)"
+        )
+        XCTAssertEqual(
+            expiry("2026-08-25T12:30:20Z", now: "2026-08-25T12:30:00Z"),
+            "Session expires in under a minute (12:30)"
+        )
+    }
+
+    func testSessionExpiryRoundsHoursDownSoItNeverOverstates() {
+        // 21h59m must read "in 21h", never "in 22h". Rounding up would tell someone they have
+        // longer than they do, which is the one direction this must not err in.
+        XCTAssertEqual(
+            expiry("2026-08-26T10:29:00Z", now: "2026-08-25T12:30:00Z"),
+            "Session expires in 21h (10:29)"
+        )
+    }
+
+    func testNoExpiryLineWhenThereIsNothingTrueToSay() {
+        // Already expired: the Sign In prompt owns that state, and a second line saying "expires in
+        // 0m" would compete with it.
+        XCTAssertNil(expiry("2026-08-25T09:59:00Z", now: "2026-08-25T12:30:00Z"))
+        // No session at all, and a session whose end the CLI did not report.
+        XCTAssertNil(MenuPresentation.sessionExpiry(
+            VPNSession(present: false, expiresAt: nil, loginRequired: true),
+            now: Date(),
+            timeZone: Self.utc
+        ))
+        XCTAssertNil(MenuPresentation.sessionExpiry(
+            VPNSession(present: true, expiresAt: nil, loginRequired: false),
+            now: Date(),
+            timeZone: Self.utc
+        ))
+    }
+
+    @MainActor
+    func testTheLastHourIsWorthSayingOutLoud() throws {
+        // In the VPN submenu it is reference. In the last hour it is something to act on, so it
+        // moves to the top-level status where it cannot be missed.
+        let store = StateStore()
+        XCTAssertFalse(store.sessionEndingSoon(now: Date()))
+
+        let soon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(40 * 60))
+        let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false,"expiresAt":"__WHEN__"},"clusters":[]}"#
+            .replacingOccurrences(of: "__WHEN__", with: soon).utf8)
+        store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+        XCTAssertTrue(store.sessionEndingSoon(now: Date()))
+
+        let later = ISO8601DateFormatter().string(from: Date().addingTimeInterval(6 * 3600))
+        let far = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false,"expiresAt":"__WHEN__"},"clusters":[]}"#
+            .replacingOccurrences(of: "__WHEN__", with: later).utf8)
+        store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: far)
+        XCTAssertFalse(store.sessionEndingSoon(now: Date()))
+    }
+}

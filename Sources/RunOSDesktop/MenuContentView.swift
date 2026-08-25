@@ -34,6 +34,42 @@ enum MenuPresentation {
         return trimmed.isEmpty ? "another account" : trimmed
     }
 
+    /*
+     When the VPN session ends, said in both the ways a person needs it.
+
+     A session lasts 24 hours from an interactive sign-in. Nothing said so until it had already
+     expired, at which point the tunnel stayed up, the clusters still read connected, and every
+     packet dropped (reported 2026-08-25). "in 21h" is the half you plan around; "09:59" is the half
+     you recognise the next morning when it has already happened.
+
+     Hours round DOWN, deliberately. 21h59m reads "in 21h", never "in 22h": overstating the time
+     left is the one direction this must not err in.
+
+     Returns nil when there is nothing true to say. Already expired belongs to the Sign In prompt,
+     and a second line reading "expires in 0m" would only compete with it.
+    */
+    static func sessionExpiry(_ session: VPNSession?, now: Date, timeZone: TimeZone = .current) -> String? {
+        guard let session, session.present, !session.loginRequired, let expiresAt = session.expiresAt else {
+            return nil
+        }
+        let remaining = expiresAt.timeIntervalSince(now)
+        guard remaining > 0 else { return nil }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        let clock = formatter.string(from: expiresAt)
+
+        if remaining >= 3600 {
+            return "Session expires in \(Int(remaining) / 3600)h (\(clock))"
+        }
+        if remaining >= 60 {
+            return "Session expires in \(Int(remaining) / 60)m (\(clock))"
+        }
+        return "Session expires in under a minute (\(clock))"
+    }
+
     static func clusterLabel(_ cluster: VPNCluster) -> String {
         let base = clusterLabel(name: cluster.name, cid: cluster.cid)
         guard cluster.isDeadConnection else { return base }
@@ -105,6 +141,13 @@ struct MenuContentView: View {
                 coordinator.setVPN(enabled: true)
             }
         }
+        // Inside the last hour the expiry stops being reference and becomes something to do. It
+        // moves out of the VPN submenu to here, where it cannot be missed, because a sign-in takes
+        // a browser round trip and being told with five minutes left is being told too late.
+        if store.sessionEndingSoon(now: Date()),
+           let expiry = MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) {
+            Label(expiry, systemImage: "clock.badge.exclamationmark")
+        }
         if let error = store.errorMessage {
             Label(error, systemImage: "exclamationmark.triangle")
         }
@@ -137,6 +180,11 @@ struct MenuContentView: View {
                     }
                 }
                 Divider()
+                // What the Sign Out button below is ending, and when it ends by itself. Sitting it
+                // next to that button is the point: both are about the session, not the clusters.
+                if let expiry = MenuPresentation.sessionExpiry(vpn.session, now: Date()) {
+                    Text(expiry)
+                }
                 // The one action that ends the 24-hour session; the next connect opens the
                 // browser sign-in again. Cluster toggles above never do this.
                 Button("Sign Out") {
