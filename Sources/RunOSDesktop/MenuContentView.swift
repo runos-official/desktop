@@ -125,8 +125,15 @@ struct MenuContentView: View {
 
     @ViewBuilder
     private var statusMessages: some View {
+        // PLAIN TEXT, no `Label`, and that is the whole reason these read as they do.
+        //
+        // An icon in a menu item widens the leading column for EVERY item in the group, so one
+        // Label here pushed the sign-in line, the Sign In button and the VPN submenu right, past
+        // the checkmark column the rest of the menu aligns to. The menu then looked like two menus.
+        // Nothing was gained for it: a four-item status block does not need iconography to be
+        // read, and the icons were never load-bearing.
         if let operation = store.operationMessage {
-            Label(operation, systemImage: "clock")
+            Text(operation)
         }
         if store.signInRequired {
             // The app has already tried and cannot do this one: Conductor wants a fresh sign-in
@@ -136,7 +143,7 @@ struct MenuContentView: View {
             // Driven by `signInRequired`, not `vpnSignInRequired`: a session that simply EXPIRED
             // reached neither this message nor the button, so the app tinted its icon and left the
             // person with a connected-looking VPN that dropped every packet.
-            Label(MenuPresentation.signInPrompt(account: store.activeAccountId), systemImage: "person.badge.key")
+            Text(MenuPresentation.signInPrompt(account: store.activeAccountId))
             Button("Sign In") {
                 coordinator.setVPN(enabled: true)
             }
@@ -146,10 +153,10 @@ struct MenuContentView: View {
         // a browser round trip and being told with five minutes left is being told too late.
         if store.sessionEndingSoon(now: Date()),
            let expiry = MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) {
-            Label(expiry, systemImage: "clock.badge.exclamationmark")
+            Text(expiry)
         }
         if let error = store.errorMessage {
-            Label(error, systemImage: "exclamationmark.triangle")
+            Text(error)
         }
     }
 
