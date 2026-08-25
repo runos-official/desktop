@@ -75,7 +75,11 @@ final class SignInRunner: ObservableObject {
                 //
                 // The handler runs off the main actor, on whatever thread the pipe delivers on, so
                 // each line is hopped back before it touches published state.
-                let code = try await runner.stream(DesktopCommands.setVPN(enabled: true) + ["--json"]) { line in
+                // `--no-browser` so THIS window opens it, on a click. Otherwise the CLI opens a
+                // browser two seconds in and the code is behind it before anyone has read it; the
+                // comparison the code exists for becomes a race against a window appearing.
+                let arguments = DesktopCommands.setVPN(enabled: true) + ["--json", "--no-browser"]
+                let code = try await runner.stream(arguments) { line in
                     guard let event = SignInEvent.parse(line) else { return }
                     Task { @MainActor in SignInRunner.deliver(event) }
                 }
@@ -103,6 +107,8 @@ final class SignInRunner: ObservableObject {
     func openURL() {
         guard let url, let parsed = URL(string: url) else { return }
         NSWorkspace.shared.open(parsed)
+        // Recorded so the window stops telling someone to do a thing they have just done.
+        browserOpened = true
     }
 
     private func fail(_ message: String) {
@@ -226,26 +232,47 @@ private struct SignInView: View {
         }
     }
 
+    /*
+     Opening the browser is a DECISION, not something that happens to you.
+
+     The CLI is run with --no-browser so nothing opens until this button is pressed. That ordering
+     is the whole value of the device code: read it here, then go and check it matches there. A
+     browser that appears on its own two seconds in puts the code behind a window before anyone has
+     read it, and the comparison silently stops happening.
+    */
     @ViewBuilder
     private var urlSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(model.browserOpened ? "Opened in your browser" : "Open this in your browser")
+            Text(model.browserOpened ? "Opened in your browser" : "When you have checked the code")
                 .font(.headline)
             if let url = model.url {
+                HStack {
+                    Button(model.browserOpened ? "Open Browser Again" : "Open Browser") {
+                        model.openURL()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    Button(model.copied ? "Copied" : "Copy Link") { model.copyURL() }
+                }
                 Text(url)
                     .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Button(model.copied ? "Copied" : "Copy Link") { model.copyURL() }
-                    Button("Open Browser") { model.openURL() }
-                }
             } else {
                 Text("Waiting for the sign-in link…")
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var statusLine: String {
+        if model.deviceID == nil { return "Starting…" }
+        // Before the browser is open there is nothing to approve yet, and saying "waiting for you
+        // to approve it in the browser" would be pointing at a window that does not exist.
+        return model.browserOpened
+            ? "Waiting for you to approve it in the browser…"
+            : "Check the code, then open the browser."
     }
 
     @ViewBuilder
@@ -254,7 +281,7 @@ private struct SignInView: View {
             switch model.phase {
             case .starting, .waiting:
                 ProgressView().controlSize(.small)
-                Text(model.deviceID == nil ? "Starting…" : "Waiting for you to approve it in the browser…")
+                Text(statusLine)
             case .authorized:
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text("Approved. Finishing sign in…")
