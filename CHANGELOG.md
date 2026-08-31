@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.0
+
+- Tell you when an update is waiting. The menu bar carries a small badge when the CLI or the app has one, and Update RunOS is greyed out when there is nothing to install. It was always enabled and always looked the same, so the only way to find out was to click it and watch.
+- The badge is drawn into the icon rather than laid over it. A SwiftUI overlay on a menu bar item is discarded: `MenuBarExtra` renders its label into a fixed template image. The coloured connection dot in that same code had therefore never been visible at all, and is gone; what conveys connection is the icon itself, which is why that has always worked.
+- Local builds report the version they are working toward instead of `0.1.0`. Every locally built app claimed to be `0.1.0`, so with the new check it would have shown a permanent update badge on every developer's machine.
+
 ## v0.3.0
 
 - Sign In and Sign Out now sign you in and out. They ran `vpn up` and `vpn down`, which never touched the CLI's credentials, so inside this app "signed in" meant "has a VPN session". They run `runos login` and `runos logout`.
