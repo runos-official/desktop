@@ -64,11 +64,19 @@ final class UpdateAvailabilityTests: XCTestCase {
          than the always-enabled behaviour it replaces. Only a definite "nothing waiting" disables
          it.
         */
-        XCTAssertTrue(store.updateActionEnabled, "nothing read yet must not disable the only way to update")
+        /*
+         NOT CHECKED YET is its own state, and it is DISABLED.
+
+         Reported after watching a real update: the item was clickable with no badge beside it. Every
+         launch starts here, and the check lands about a second later, so treating "no answer yet"
+         as "there might be an update" flashes a clickable button and no badge on every single
+         launch, which is the exact contradiction the badge exists to remove.
+        */
+        XCTAssertFalse(store.updateActionEnabled, "not checked yet is not the same as no verdict")
 
         store.updateVerdictKnown = false
         store.updateAvailable = false
-        XCTAssertTrue(store.updateActionEnabled, "an older CLI gives no verdict, so leave it clickable")
+        XCTAssertTrue(store.updateActionEnabled, "we ASKED and got no verdict, so leave the escape hatch open")
 
         store.updateVerdictKnown = true
         store.updateAvailable = false

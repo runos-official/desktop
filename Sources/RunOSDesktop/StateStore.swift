@@ -32,6 +32,7 @@ final class StateStore: ObservableObject {
      `UpdateCheck.verdictKnown`.
     */
     @Published var updateVerdictKnown: Bool?
+
     /*
      The VPN system service is not installed, so nothing can carry a tunnel.
 
@@ -139,12 +140,23 @@ final class StateStore: ObservableObject {
 
      False while an update is already running, so it cannot be started twice.
     */
+    /*
+     Whether Update RunOS can do anything if clicked. THREE states, not two.
+
+       nil    nothing has been asked yet. DISABLED: every launch starts here and the answer lands
+              about a second later, so treating it as "there might be an update" would flash a
+              clickable button with no badge beside it on every single launch.
+       false  we asked and got no verdict, because the CLI is too old to carry one or the check
+              could not run. ENABLED, because disabling it would leave no way to update at all.
+       true   we have a verdict, so follow it.
+    */
     var updateActionEnabled: Bool {
         guard operationMessage == nil else { return false }
-        // Disabled only when we KNOW there is nothing to install. An unknown leaves it clickable,
-        // so an app running against an older CLI can still update itself.
-        guard updateVerdictKnown == true else { return true }
-        return updateAvailable
+        switch updateVerdictKnown {
+        case .none: return false
+        case .some(false): return true
+        case .some(true): return updateAvailable
+        }
     }
 
     var activeAccountId: String? { cliStatus?.accountId }

@@ -174,7 +174,17 @@ final class RefreshCoordinator: ObservableObject {
         if let last = lastUpdateCheck, now.timeIntervalSince(last) < updateCheckInterval { return }
         lastUpdateCheck = now
         guard let result = try? await runner.run(["update", "--check", "--json"]),
-              let check = try? result.decode(UpdateCheck.self) else { return }
+              let check = try? result.decode(UpdateCheck.self) else {
+            /*
+             ASKED, AND GOT NOTHING USABLE. That is a verdict-less answer, not a state of having
+             never asked, and the difference decides whether Update RunOS is clickable.
+
+             Leaving it unset would keep the item DISABLED for as long as the check kept failing, so
+             a machine that could not reach the release feed would have no way to update at all.
+            */
+            update(\.updateVerdictKnown, to: false)
+            return
+        }
         update(\.updateAvailable, to: check.anyAvailable)
         update(\.updateVerdictKnown, to: check.verdictKnown)
     }
