@@ -145,6 +145,25 @@ final class StateStore: ObservableObject {
      A check that could not run must leave the controls as they were. `signInRequired` already
      encodes that distinction; this now asks the same question.
     */
+    /*
+     Whether the VPN service is running a different build from the CLI, and a restart would pick the
+     current one up.
+
+     The service runs the same binary the CLI updates, and launchd keeps the old inode open, so
+     every CLI update leaves the daemon behind until something restarts it. A person updating from
+     the MENU was never told: the CLI prints a notice, but `--json` puts it on stderr so it cannot
+     corrupt the stream, and this app reads stderr only when a command fails.
+
+     Both builds have to be KNOWN. A daemon that does not report its version, or a version this app
+     has not read yet, is not evidence of drift, and an item offering to ask for an administrator
+     password for a restart that changes nothing is worse than no item at all.
+    */
+    var vpnRestartRequired: Bool {
+        guard let cli = cliVersion, !cli.isEmpty,
+              let daemon = vpnStatus?.version, !daemon.isEmpty else { return false }
+        return daemon != cli
+    }
+
     var vpnControlsUsable: Bool { cliStatus != nil && !signInRequired && !vpnServiceMissing }
 
     /*

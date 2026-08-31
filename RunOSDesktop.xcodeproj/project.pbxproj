@@ -24,6 +24,7 @@
 		A1000000000000000000000046 /* VPNServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000046 /* VPNServiceTests.swift */; };
 		A10000000000000000000047 /* SignInParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000047 /* SignInParityTests.swift */; };
 		A10000000000000000000048 /* UpdateAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000048 /* UpdateAvailabilityTests.swift */; };
+		A10000000000000000000049 /* VPNRestartRequiredTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000049 /* VPNRestartRequiredTests.swift */; };
 		A10000000000000000000010 /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* ModelTests.swift */; };
 		A10000000000000000000011 /* CLIRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* CLIRunnerTests.swift */; };
 		A10000000000000000000012 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10000000000000000000015 /* XCTest.framework */; };
@@ -52,6 +53,7 @@
 		B1000000000000000000000046 /* VPNServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNServiceTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000047 /* SignInParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInParityTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000048 /* UpdateAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityTests.swift; sourceTree = "<group>"; };
+		B10000000000000000000049 /* VPNRestartRequiredTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNRestartRequiredTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000010 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000011 /* CLIRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRunnerTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -72,7 +74,7 @@
 		G10000000000000000000004 /* Tests */ = {isa = PBXGroup; children = (G10000000000000000000007 /* RunOSDesktopTests */); path = Tests; sourceTree = "<group>"; };
 		G10000000000000000000005 /* Frameworks */ = {isa = PBXGroup; children = (B10000000000000000000015 /* XCTest.framework */); name = Frameworks; sourceTree = "<group>"; };
 		G10000000000000000000006 /* RunOSDesktop */ = {isa = PBXGroup; children = (B10000000000000000000001, B10000000000000000000002, B10000000000000000000003, B10000000000000000000004, B10000000000000000000005, B10000000000000000000006, B10000000000000000000007, B10000000000000000000008, B10000000000000000000009, B10000000000000000000012, B10000000000000000000020, B10000000000000000000041, B10000000000000000000042, B1000000000000000000000043, B1000000000000000000000044, B1000000000000000000000045 /* VPNService.swift */); path = RunOSDesktop; sourceTree = "<group>"; };
-		G10000000000000000000007 /* RunOSDesktopTests */ = {isa = PBXGroup; children = (B10000000000000000000010, B10000000000000000000011, B1000000000000000000000046 /* VPNServiceTests.swift */, B10000000000000000000047 /* SignInParityTests.swift */, B10000000000000000000048 /* UpdateAvailabilityTests.swift */); path = RunOSDesktopTests; sourceTree = "<group>"; };
+		G10000000000000000000007 /* RunOSDesktopTests */ = {isa = PBXGroup; children = (B10000000000000000000010, B10000000000000000000011, B1000000000000000000000046 /* VPNServiceTests.swift */, B10000000000000000000047 /* SignInParityTests.swift */, B10000000000000000000048 /* UpdateAvailabilityTests.swift */, B10000000000000000000049 /* VPNRestartRequiredTests.swift */); path = RunOSDesktopTests; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -91,7 +93,7 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		I10000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000007, A10000000000000000000008, A10000000000000000000020, A10000000000000000000041, A10000000000000000000042, A1000000000000000000000043, A1000000000000000000000044, A1000000000000000000000045); runOnlyForDeploymentPostprocessing = 0; };
-		I10000000000000000000002 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000010, A10000000000000000000011, A1000000000000000000000046, A10000000000000000000047, A10000000000000000000048); runOnlyForDeploymentPostprocessing = 0; };
+		I10000000000000000000002 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000010, A10000000000000000000011, A1000000000000000000000046, A10000000000000000000047, A10000000000000000000048, A10000000000000000000049); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */

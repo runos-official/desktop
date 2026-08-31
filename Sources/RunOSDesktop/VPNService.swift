@@ -44,7 +44,34 @@ enum VPNService {
      person cancels the prompt, which is a refusal to report and not a state to retry.
     */
     static func install(cliPath: String, userName: String = NSUserName()) async throws -> String {
-        let command = installCommand(cliPath: cliPath, userName: userName)
+        try await runPrivileged(
+            installCommand(cliPath: cliPath, userName: userName),
+            cancelled: "Installing the VPN service needs an administrator password. Nothing was changed.",
+            failed: "The VPN service could not be installed.")
+    }
+
+    /*
+     Restart the VPN service, so it runs the build the CLI was just updated to.
+
+     The service runs the same binary `runos update` replaces, and launchd holds the old inode open,
+     so an update leaves the daemon on the previous build. The CLI says so and deliberately does not
+     act, because `runos update` has no administrator rights and escalating in the middle of an
+     unrelated command would be a surprise.
+
+     FROM THE MENU IT IS NOT A SURPRISE. The person clicked a thing and is watching it happen, which
+     is exactly when a password prompt is expected. Cancelling is a refusal, not a fault: the menu
+     keeps offering it.
+
+     Brief: the tunnel drops while the service reloads and re-converges on its own within seconds.
+    */
+    static func restart(cliPath: String) async throws -> String {
+        try await runPrivileged(
+            restartCommand(cliPath: cliPath),
+            cancelled: "Restarting the VPN service needs an administrator password. Nothing was changed.",
+            failed: "The VPN service could not be restarted.")
+    }
+
+    private static func runPrivileged(_ command: String, cancelled: String, failed: String) async throws -> String {
         let script = "do shell script \"\(appleScriptQuoted(command))\" with administrator privileges"
 
         let process = Process()
@@ -66,8 +93,8 @@ enum VPNService {
                 exitCode: process.terminationStatus,
                 // -128 is osascript's code for "the person pressed Cancel", which is not a fault.
                 message: message.contains("-128") || message.localizedCaseInsensitiveContains("User canceled")
-                    ? "Installing the VPN service needs an administrator password. Nothing was changed."
-                    : (message.isEmpty ? "The VPN service could not be installed." : message)
+                    ? cancelled
+                    : (message.isEmpty ? failed : message)
             )
         }
         return String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,6 +120,12 @@ enum VPNService {
     */
     static func installCommand(cliPath: String, userName: String) -> String {
         "SUDO_USER=\(shellQuoted(userName)) \(shellQuoted(cliPath)) vpn install"
+    }
+
+    /// `vpn restart` needs no SUDO_USER: it reloads the service in place and rewrites nothing that
+    /// depends on who asked. See installCommand for why install does.
+    static func restartCommand(cliPath: String) -> String {
+        "\(shellQuoted(cliPath)) vpn restart"
     }
 
     /// Single-quote for /bin/sh, closing and reopening around any embedded quote.

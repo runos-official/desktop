@@ -2,6 +2,11 @@ import AppKit
 import SwiftUI
 
 enum MenuPresentation {
+    /// The menu item that appears only while the VPN service is on a different build. Named for the
+    /// action, because its PRESENCE is what says a restart is needed; the words do not have to
+    /// carry that as well.
+    static let vpnRestartTitle = "Restart VPN"
+
     static func clusterLabel(name: String, cid: String) -> String {
         let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return displayName.isEmpty ? cid : "\(displayName) (\(cid))"
@@ -237,6 +242,16 @@ struct MenuContentView: View {
             */
             Button(store.updateActionTitle) { coordinator.updateRunOS() }
                 .disabled(!store.updateActionEnabled)
+            /*
+             SHOWN ONLY WHILE THERE IS DRIFT, unlike Update RunOS above, which is disabled rather
+             than hidden. The difference is that Update is a thing people come looking for and this
+             is not: a permanent "Restart VPN" would read as something they ought to be doing.
+             Its presence IS the message.
+            */
+            if store.vpnRestartRequired {
+                Button(MenuPresentation.vpnRestartTitle) { coordinator.restartVPNService() }
+                    .disabled(store.isBusy)
+            }
             Toggle("Launch at Login", isOn: Binding(
                 get: { loginItem.isEnabled },
                 set: { loginItem.setEnabled($0) }

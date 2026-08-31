@@ -462,6 +462,34 @@ final class RefreshCoordinator: ObservableObject {
         }
     }
 
+    /*
+     Restart the VPN service so it runs the build the CLI was updated to.
+
+     Offered from the menu, and offered automatically the moment an update leaves the daemon behind,
+     because that is when the person is already watching. Cancelling is a refusal and not a fault:
+     `vpnRestartRequired` stays true, so the menu item stays, and they can take it later.
+    */
+    func restartVPNService() {
+        guard !actionRunning else { return }
+        actionRunning = true
+        store.operationMessage = "Restarting the VPN service…"
+        store.errorMessage = nil
+        actionTask = Task {
+            // Held until after the refresh, which writes `errorMessage` itself. See `perform`.
+            var failure: String?
+            do {
+                _ = try await VPNService.restart(cliPath: CLIPathResolver.resolve().path)
+            } catch {
+                failure = error.localizedDescription
+            }
+            store.operationMessage = nil
+            actionRunning = false
+            await refresh(allowDuringAction: true)
+            if let failure { store.errorMessage = failure }
+            actionTask = nil
+        }
+    }
+
     func cancelOperation() {
         guard actionRunning, store.canCancelOperation else { return }
         store.operationMessage = store.cancellingOperationMessage ?? "Cancelling…"
@@ -517,6 +545,17 @@ final class RefreshCoordinator: ObservableObject {
             actionRunning = false
             store.isUpdating = false
             store.operationMessage = nil
+            /*
+             THE UPDATE LEFT THE SERVICE BEHIND, so ask now while they are still watching.
+
+             The VPN service runs the same binary this just replaced, and launchd keeps the old one
+             loaded. Saying nothing left people on a stale daemon with no sign of it, because the
+             CLI's notice goes to stderr under --json and this app reads stderr only on failure.
+             Declining is fine: the menu keeps the item.
+            */
+            if failure == nil && store.vpnRestartRequired {
+                restartVPNService()
+            }
         }
     }
 

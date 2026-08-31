@@ -44,6 +44,15 @@ struct VPNStatus: Decodable, Equatable, Sendable {
     let interface: String?
     let address: String?
     let dns: VPNDns?
+    /*
+     The build the VPN SERVICE is running, which is not always the build of the CLI that asked.
+
+     The service runs the same binary `runos update` replaces, and launchd holds the old inode open,
+     so updating leaves the daemon on the previous build until something restarts it. Optional
+     because a daemon too old to report it simply omits it, and a version nobody stated cannot be
+     compared. See StateStore.vpnRestartRequired.
+    */
+    let version: String?
 
     /*
      Every cluster worth a row in the menu.
