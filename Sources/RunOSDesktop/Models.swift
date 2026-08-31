@@ -18,6 +18,19 @@ struct CLIStatus: Decodable, Equatable, Sendable {
      unknown state stays whatever it was rather than claiming a signed-out one.
     */
     let sessionExpired: Bool?
+    /*
+     WHY A FAILED REFRESH HAS A KIND (FCR160).
+
+     `authenticated: false` used to mean two unrelated things: the sign-in was refused, or the CLI
+     could not reach Google's token endpoint at all. A ten second timeout on a train therefore read
+     as being signed out, and put `request failed: Post "https://securetoken.googleapis.com/...":
+     context deadline exceeded` in the menu bar.
+
+     "network" means the check did not complete and the sign-in is untouched. "rejected" means it is
+     genuinely gone. Absent, on an older CLI, reads as neither, which keeps the previous behaviour
+     for a build that cannot tell us.
+    */
+    let authErrorKind: String?
 }
 
 struct VPNStatus: Decodable, Equatable, Sendable {

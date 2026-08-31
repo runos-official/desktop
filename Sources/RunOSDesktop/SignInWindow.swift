@@ -27,6 +27,53 @@ enum SignInPhase: Equatable {
     case failed(String)
 }
 
+/*
+ WHAT THIS WINDOW IS DOING, which is two different things that must never be called the same one.
+
+ `signIn` establishes an identity. `confirm` proves the person is still there, because conductor
+ mints a VPN session only from a sign-in in the last five minutes; the account cannot change and
+ nobody is being signed into anything.
+
+ Wording them the same is what produced "sign in twice": a person who had signed in a minute ago
+ was shown a Sign In window when they asked to connect, so it read as the first one having failed.
+*/
+enum SignInPurpose: Equatable {
+    case signIn
+    case confirm
+
+    var windowTitle: String {
+        switch self {
+        case .signIn: return "Sign in to RunOS"
+        case .confirm: return "Confirm it's you"
+        }
+    }
+
+    /// The one line under the title saying why a browser is involved at all.
+    var explanation: String {
+        switch self {
+        case .signIn:
+            return "Approve this device in your browser to sign in."
+        case .confirm:
+            return "You are still signed in. Connecting the VPN needs a recent browser check."
+        }
+    }
+
+    var arguments: [String] {
+        switch self {
+        case .signIn: return DesktopCommands.signIn()
+        case .confirm: return DesktopCommands.setVPN(enabled: true)
+        }
+    }
+
+    /// What to say when the CLI failed and said nothing on stderr for us to quote.
+    var genericFailure: String {
+        switch self {
+        case .signIn: return "Sign in did not complete."
+        case .confirm: return "Could not connect the VPN."
+        }
+    }
+}
+
 @MainActor
 final class SignInRunner: ObservableObject {
     @Published private(set) var deviceID: String?
@@ -38,6 +85,7 @@ final class SignInRunner: ObservableObject {
     private var task: Task<Void, Never>?
     private let runner: CLIRunner?
     private let onFinished: () -> Void
+    let purpose: SignInPurpose
 
     /*
      Where a streamed line lands.
@@ -53,8 +101,17 @@ final class SignInRunner: ObservableObject {
         current?.apply(event)
     }
 
-    init(runner: CLIRunner?, onFinished: @escaping () -> Void) {
+    /// Fires once, when a device code first arrives. The controller uses it to bring a deferred
+    /// window on screen; a purpose that opens immediately never needs it.
+    var onDeviceCode: (() -> Void)?
+
+    /// Fires once when the run finishes, however it finishes. The caller clears its own progress
+    /// state on this, which matters most for a run that never opened a window to close.
+    var onEnded: (() -> Void)?
+
+    init(runner: CLIRunner?, purpose: SignInPurpose, onFinished: @escaping () -> Void) {
         self.runner = runner
+        self.purpose = purpose
         self.onFinished = onFinished
     }
 
@@ -68,22 +125,22 @@ final class SignInRunner: ObservableObject {
         url = nil
         phase = .starting
         SignInRunner.current = self
+        let purpose = self.purpose
         task = Task { [weak self] in
             do {
-                // `vpn up --json` signs in AND connects, which is what the Sign In button has always
-                // done. The sign-in half reports as events; the rest is the CLI's own business.
-                //
-                // The handler runs off the main actor, on whatever thread the pipe delivers on, so
-                // each line is hopped back before it touches published state.
-                // `--no-browser` so THIS window opens it, on a click. Otherwise the CLI opens a
-                // browser two seconds in and the code is behind it before anyone has read it; the
-                // comparison the code exists for becomes a race against a window appearing.
-                let arguments = DesktopCommands.setVPN(enabled: true) + ["--json", "--no-browser"]
-                let code = try await runner.stream(arguments) { line in
+                /*
+                 The command is the PURPOSE's, not this window's. `signIn` runs `runos login`, which
+                 is the only command in the app that establishes an identity; `confirm` runs
+                 `vpn up`, which consumes one and never creates one.
+
+                 The handler runs off the main actor, on whatever thread the pipe delivers on, so
+                 each line is hopped back before it touches published state.
+                */
+                let result = try await runner.stream(purpose.arguments) { line in
                     guard let event = SignInEvent.parse(line) else { return }
                     Task { @MainActor in SignInRunner.deliver(event) }
                 }
-                await self?.finish(exitCode: code)
+                await self?.finish(result)
             } catch is CancellationError {
             } catch {
                 await self?.fail(ConnectionDiagnostics.concise(error.localizedDescription))
@@ -95,6 +152,7 @@ final class SignInRunner: ObservableObject {
         task?.cancel()
         task = nil
         phase = .failed("Sign in cancelled.")
+        endOnce()
     }
 
     func copyURL() {
@@ -113,6 +171,12 @@ final class SignInRunner: ObservableObject {
 
     private func fail(_ message: String) {
         phase = .failed(message)
+        endOnce()
+    }
+
+    private func endOnce() {
+        onEnded?()
+        onEnded = nil
     }
 
     fileprivate func apply(_ event: SignInEvent) {
@@ -121,6 +185,10 @@ final class SignInRunner: ObservableObject {
             deviceID = id
             url = link
             phase = .waiting
+            // There is now something worth a window. For `.confirm` this is the ONLY thing that
+            // opens one, so a connect that needed no confirmation never shows a thing.
+            onDeviceCode?()
+            onDeviceCode = nil
         case .browserOpened(let opened):
             browserOpened = opened
         case .pending:
@@ -139,14 +207,24 @@ final class SignInRunner: ObservableObject {
      authorised, and the CLI still has a token to exchange and a tunnel to bring up after it. Closing
      on the event would report success before the thing had happened.
     */
-    private func finish(exitCode: Int32) {
-        if exitCode == 0 {
+    private func finish(_ result: CLIStreamResult) {
+        if result.exitCode == 0 {
             phase = .authorized
+            endOnce()
             onFinished()
             return
         }
+        endOnce()
         if case .failed = phase { return }
-        phase = .failed("Sign in did not complete.")
+        /*
+         THE CLI'S OWN SENTENCE, when it wrote one.
+
+         stderr used to go to `nullDevice`, so every failure after the browser authorised, the token
+         exchange, the enrolment, the session mint, arrived here as one generic line. A person was
+         told the sign-in "did not complete" and never which part, or what to do. The CLI writes a
+         remedy on that stream; showing it costs nothing and is almost always the whole answer.
+        */
+        phase = .failed(result.failureSentence ?? purpose.genericFailure)
     }
 }
 
@@ -155,10 +233,24 @@ final class SignInWindowController {
     static let shared = SignInWindowController()
     private var window: NSPanel?
 
-    func show(runner: CLIRunner?, onFinished: @escaping () -> Void) {
+    /*
+     Run the device-code flow, and put a window on screen when the purpose says to.
+
+     `onEnded` fires however it finishes, so the caller can clear whatever it is showing in the menu
+     for a run that never opened a window at all.
+    */
+    func show(
+        runner: CLIRunner?,
+        purpose: SignInPurpose,
+        onFinished: @escaping () -> Void,
+        onEnded: @escaping () -> Void = {}
+    ) {
         let panel = window ?? makePanel()
         window = panel
-        let model = SignInRunner(runner: runner) { [weak self] in
+        // The title is the purpose's. A window headed "Sign in to RunOS" in front of somebody who
+        // signed in a minute ago is what made a routine freshness check read as a failed sign-in.
+        panel.title = purpose.windowTitle
+        let model = SignInRunner(runner: runner, purpose: purpose) { [weak self] in
             onFinished()
             self?.window?.close()
         }
@@ -166,8 +258,10 @@ final class SignInWindowController {
             rootView: SignInView(model: model) { [weak self] in
                 model.cancel()
                 self?.window?.close()
+                onEnded()
             }
         )
+        model.onEnded = onEnded
         model.start()
         NSApplication.shared.activate(ignoringOtherApps: true)
         panel.center()
@@ -176,12 +270,11 @@ final class SignInWindowController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 380),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        panel.title = "Sign in to RunOS"
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         return panel
@@ -194,6 +287,10 @@ private struct SignInView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Text(model.purpose.explanation)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             deviceCodeSection
             Divider()
             urlSection
@@ -207,7 +304,7 @@ private struct SignInView: View {
             }
         }
         .padding(20)
-        .frame(width: 460, height: 340)
+        .frame(width: 460, height: 380)
     }
 
     @ViewBuilder
@@ -284,7 +381,7 @@ private struct SignInView: View {
                 Text(statusLine)
             case .authorized:
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Approved. Finishing sign in…")
+                Text(model.purpose == .confirm ? "Approved. Connecting…" : "Approved. Finishing sign in…")
             case .failed(let message):
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
                 Text(message).foregroundStyle(.secondary)

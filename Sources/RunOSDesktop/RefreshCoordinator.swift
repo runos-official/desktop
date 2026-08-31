@@ -23,7 +23,6 @@ final class RefreshCoordinator: ObservableObject {
     }
 
     /// The account the VPN switch was last attempted for, so it is tried once and not every poll.
-    private var switchAttemptedForAccount: String?
 
     func start() {
         guard !hasStarted else { return }
@@ -84,63 +83,38 @@ final class RefreshCoordinator: ObservableObject {
             if let vpn, vpn.running {
                 store.traffic.record(total: vpn.totalTrafficBytes)
             }
-            // Being signed out is a STATE, not an error, and it has a Sign In button. Promoting
-            // conductor's sentence to the error banner put a paragraph of terminal wording in the
-            // menu explaining something the app already offers to fix. Every OTHER authError still
-            // surfaces: the rule is narrow on purpose.
-            update(\.errorMessage, to: status.sessionExpired == true ? nil : status.authError)
-            await followCLIAccount(status, vpn: vpn)
+            /*
+             Being signed out is a STATE, not an error, and it has a Sign In button. Promoting the
+             CLI's sentence to the error banner put terminal wording in the menu explaining something
+             the app already offers to fix.
+
+             A REACHABILITY failure is neither (FCR160). `authErrorKind == "network"` means the token
+             refresh could not COMPLETE, which says nothing about the sign-in; it used to arrive here
+             as `authenticated: false` carrying a raw Go error with a request URL and an API key in
+             it, and this line rendered that verbatim in the menu bar. It still shows, because a
+             person whose menu has gone quiet should know the app cannot reach anything, but it shows
+             as the one sentence the CLI now writes for it.
+            */
+            update(\.errorMessage, to: store.signInRequired ? nil : status.authError)
         } catch {
             update(\.errorMessage, to: error.localizedDescription)
         }
     }
 
     /*
-     Keep the VPN on the account the person is signed in to, without telling them about it.
+     THE APP NO LONGER FOLLOWS AN ACCOUNT SWITCH BY ITSELF (FPL26 D3).
 
-     The app used to report "the CLI is on abcde, the VPN is on fghij" and offer a button. That
-     asks a person to reconcile two account states they never knew existed, to fix something the
-     app can fix itself; which is exactly what it now does. `vpn up --non-interactive` is silent
-     when the sign-in is recent enough, and after an account switch it usually is.
+     It used to notice `vpnAccountMismatch` and run `vpn up --non-interactive` to move the tunnel
+     onto the account the CLI had switched to. Two things were wrong with that. It could not work:
+     the device key and the device id are both account-scoped, and the connect path reused the
+     previous account's, so conductor answered 404 or the tunnel came up on a key it had never seen
+     and routed nothing. And it should not: a tunnel appearing on a different account without being
+     asked for is a surprise on the security-sensitive side.
 
-     ONLY WHILE THE TUNNEL IS UP, and once per account rather than once per poll: a person whose sign-in has genuinely expired would
-     otherwise have this run against Conductor every few seconds for as long as the menu is open.
-     A failure is not an error banner either. It means one thing a person can act on, so it sets
-     the sign-in prompt and nothing else.
+     The rule now is that the tunnel never outlives the identity that opened it. `runos logout` and
+     an account change both drop it, in the CLI, where the identity actually lives. This app simply
+     reads the result, and the person clicks Connect when they want the new account connected.
     */
-    private func followCLIAccount(_ status: CLIStatus, vpn: VPNStatus?) async {
-        // Only ever while the tunnel is ALREADY up. `vpn up` signs in AND connects, so following
-        // the account on a stopped VPN turned it on for someone who never asked. Connecting is
-        // their decision (the Connect button, or the startup preference), never a side effect of
-        // the app tidying its own state. A VPN that is down is also showing nobody anything wrong.
-        guard vpn?.running == true else {
-            switchAttemptedForAccount = nil
-            update(\.vpnSignInRequired, to: false)
-            return
-        }
-        guard status.vpnAccountMismatch == true, let account = status.accountId else {
-            switchAttemptedForAccount = nil
-            update(\.vpnSignInRequired, to: false)
-            return
-        }
-        guard switchAttemptedForAccount != account, let runner else { return }
-        switchAttemptedForAccount = account
-        do {
-            _ = try await runner.run(DesktopCommands.connectVPNAtStartup())
-            update(\.vpnSignInRequired, to: false)
-        } catch {
-            /*
-             NOT EVERY FAILURE IS A SIGN-IN. This caught all of them and asked for a sign-in, so a
-             machine with no VPN service sent the person to a browser to fix a missing daemon and
-             appeared to do nothing when they came back.
-            */
-            if VPNService.isMissing(error) {
-                update(\.vpnServiceMissing, to: true)
-            } else {
-                update(\.vpnSignInRequired, to: true)
-            }
-        }
-    }
 
     func perform(
         _ arguments: [String],
@@ -177,17 +151,39 @@ final class RefreshCoordinator: ObservableObject {
     }
 
     /*
-     Open the sign-in window and let it drive the CLI.
+     Open the device-code window and let it drive the CLI.
 
      Not `perform`: that captures output and shows a spinner, which is exactly what hid the device
-     id and the URL. The window streams the same command and shows both, then refreshes here when
-     the CLI exits 0.
+     id and the URL. The window streams the command and shows both, then refreshes here when the CLI
+     exits 0.
+
+     The PURPOSE decides which command runs and what the window says. Signing in and confirming a
+     sign-in are different things and this app no longer spells them the same way; see
+     `SignInPurpose`.
     */
-    func beginSignIn() {
+    func beginSignIn(purpose: SignInPurpose = .signIn) {
         guard !actionRunning else { return }
-        SignInWindowController.shared.show(runner: runner) { [weak self] in
-            Task { await self?.refresh() }
-        }
+        SignInWindowController.shared.show(
+            runner: runner,
+            purpose: purpose,
+            onFinished: { [weak self] in
+                Task { await self?.refresh() }
+            },
+            onEnded: { [weak self] in
+                self?.store.operationMessage = nil
+            }
+        )
+    }
+
+    /*
+     End the identity. `runos logout` drops the tunnel with it (FPL26 D3), so this is one command.
+
+     It used to be `vpn down`, which ended the VPN session and left the machine signed in, which is
+     how one invocation of `runos status` came to report `"authenticated": false` beside
+     `"vpnRunning": true`.
+    */
+    func signOut() {
+        perform(DesktopCommands.signOut(), message: "Signing out…")
     }
 
     /*
@@ -235,14 +231,13 @@ final class RefreshCoordinator: ObservableObject {
         perform(DesktopCommands.connectVPNAtStartup(), message: "Connecting VPN…")
     }
 
-    func setVPN(enabled: Bool) {
-        perform(
-            DesktopCommands.setVPN(enabled: enabled),
-            message: enabled ? "Connecting VPN…" : "Signing out…",
-            cancellable: enabled,
-            cancelLabel: "Cancel Connection",
-            cancellingMessage: "Cancelling connection…"
-        )
+    /*
+     Take the tunnel down. Bringing it UP goes through the device-code window instead
+     (`beginSignIn(purpose: .confirm)`), because conductor can ask for a browser check first and a
+     spinner cannot show a device code.
+    */
+    func disconnectVPN() {
+        perform(DesktopCommands.setVPN(enabled: false), message: "Disconnecting VPN…")
     }
 
     func updateRunOS() {

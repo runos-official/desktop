@@ -15,39 +15,16 @@ enum MenuPresentation {
      label rather than somewhere the person has to go looking.
      */
     /*
-     What a person is told when the CLI and the VPN are on different accounts.
+     THERE IS NO ACCOUNT-DIFFERENCE SENTENCE ANY MORE, and that is deliberate.
 
-     The old text was "Account mismatch: CLI fghij, VPN abcde" followed by "Run 'runos vpn up' to
-     synchronize the VPN account". It named a state without its consequence and then asked the
-     person to go and type a command the app can run itself.
-
-     The consequence is the part that matters: the VPN, and every cluster listed under it, belongs
-     to the other account. Until that is said, someone reading this menu is looking at another
-     account's clusters and has no way to know.
-     */
-    static func signInPrompt(account: String?) -> String {
-        "Sign in to use the VPN with \(accountName(account))."
-    }
-
-    private static func accountName(_ id: String?) -> String {
-        let trimmed = (id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "another account" : trimmed
-    }
-
-    /*
-     When the VPN session ends, said in both the ways a person needs it.
-
-     A session lasts 24 hours from an interactive sign-in. Nothing said so until it had already
-     expired, at which point the tunnel stayed up, the clusters still read connected, and every
-     packet dropped (reported 2026-08-25). "in 21h" is the half you plan around; "09:59" is the half
-     you recognise the next morning when it has already happened.
-
-     Hours round DOWN, deliberately. 21h59m reads "in 21h", never "in 22h": overstating the time
-     left is the one direction this must not err in.
-
-     Returns nil when there is nothing true to say. Already expired belongs to the Sign In prompt,
-     and a second line reading "expires in 0m" would only compete with it.
+     `signInPrompt(account:)` lived here and named the account a sign-in was for, because the app
+     tried to move the tunnel onto whichever account the CLI had switched to and sometimes could
+     not. It no longer tries (FPL26 D3): the tunnel never outlives the identity that opened it, the
+     CLI drops it when the identity changes, and the person connects the new account deliberately.
+     With nothing happening behind their back there is nothing to explain, so the button says it
+     all.
     */
+
     static func sessionExpiry(_ session: VPNSession?, now: Date, timeZone: TimeZone = .current) -> String? {
         guard let session, session.present, !session.loginRequired, let expiresAt = session.expiresAt else {
             return nil
@@ -151,16 +128,13 @@ struct MenuContentView: View {
              twice, and the first time in greyed-out text that cannot be acted on. The button IS
              the statement: an app offering to sign you in is not one you are signed in to.
 
-             An account switch the app could not finish is the one case that still needs a
-             sentence, because the button alone cannot say WHICH account, and that is the entire
-             content of that situation. Driven by `signInRequired`, not `vpnSignInRequired`, so an
-             expired session reaches the button at all.
+             The button now runs `runos login`, which is the only command in this app that
+             establishes an identity. It used to run `vpn up`, which RESOLVES a credential before it
+             does anything else and therefore exited immediately on the one machine that needed this
+             button most: a signed-out one (reported 2026-08-28).
             */
-            if !store.cliSessionExpired {
-                Text(MenuPresentation.signInPrompt(account: store.activeAccountId))
-            }
             Button("Sign In") {
-                coordinator.beginSignIn()
+                coordinator.beginSignIn(purpose: .signIn)
             }
         }
         // Inside the last hour the expiry stops being reference and becomes something to do. It
@@ -193,23 +167,31 @@ struct MenuContentView: View {
                 // already ended, over a cluster ticked as connected while nothing routed. Both were
                 // claims, and greying them left the claims intact. What is true is this one line;
                 // the Sign In button above is the thing to do about it.
-                Text("Signed out")
+                Text("Sign in to use the VPN")
             case .connected:
                 vpnClusters
                 Divider()
-                // What the Sign Out button below is ending, and when it ends by itself. Sitting it
-                // next to that button is the point: both are about the session, not the clusters.
+                // When the tunnel ends by itself. Next to the button that ends it deliberately.
                 if let expiry = MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) {
                     Text(expiry)
                 }
-                // The one action that ends the 24-hour session; the next connect opens the
-                // browser sign-in again. Cluster toggles above never do this.
-                Button("Sign Out") {
-                    coordinator.setVPN(enabled: false)
+                /*
+                 DISCONNECT, not "Sign Out". This ends the tunnel and leaves the person signed in,
+                 which is what `vpn down` has always actually done; calling it Sign Out was the app
+                 asserting that a VPN session and an identity were the same thing. Sign Out is now a
+                 separate item that ends the identity, and the tunnel with it.
+                */
+                Button("Disconnect") {
+                    coordinator.disconnectVPN()
                 }
             case .disconnected:
+                /*
+                 Connecting can still need a browser round trip: conductor mints a VPN session only
+                 from a sign-in in the last five minutes. That is a CONFIRMATION, and the window says
+                 so. The person stays signed in throughout and the account cannot change.
+                */
                 Button("Connect") {
-                    coordinator.beginSignIn()
+                    coordinator.beginSignIn(purpose: .confirm)
                 }
             }
         }
@@ -255,6 +237,18 @@ struct MenuContentView: View {
             ))
             if let error = loginItem.errorMessage {
                 Text(error)
+            }
+            /*
+             SIGN OUT LIVES HERE, beside the other things that are about this machine rather than
+             about the tunnel, and it is only offered when there is an identity to end.
+
+             It runs `runos logout`, which clears the credential AND drops the tunnel (FPL26 D3).
+             The old Sign Out was inside the VPN submenu and ran `vpn down`, which ended the session
+             and left the machine signed in.
+            */
+            if store.signedIn {
+                Divider()
+                Button("Sign Out") { coordinator.signOut() }
             }
         }
     }

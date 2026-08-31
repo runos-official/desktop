@@ -17,6 +17,46 @@ struct CLIExecutionError: LocalizedError, Sendable {
     var errorDescription: String? { message }
 }
 
+/// What a streamed run ended as. `errorOutput` is whatever the CLI put on stderr, kept so a failure
+/// can be reported in the CLI's own words instead of a generic sentence.
+struct CLIStreamResult: Sendable {
+    let exitCode: Int32
+    let errorOutput: String
+
+    /*
+     The one line worth showing a person.
+
+     The CLI's convention is a final sentence carrying the remedy, sometimes after progress prose on
+     the same stream. The LAST non-empty line is that sentence. Empty when the CLI said nothing,
+     which is the only case a caller has to invent wording for.
+    */
+    var failureSentence: String? {
+        errorOutput
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last(where: { !$0.isEmpty })
+    }
+}
+
+/// Collects stderr off the pipe's delivery thread. A plain `var` captured by the handler would be a
+/// data race; this keeps the append behind a lock so `Sendable` means what it says.
+final class ErrorBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        data.append(chunk)
+    }
+
+    func text() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
 actor CLIRunner {
     let executableURL: URL
 
@@ -71,16 +111,32 @@ actor CLIRunner {
     func stream(
         _ arguments: [String],
         onLine: @escaping @Sendable (String) -> Void
-    ) async throws -> Int32 {
+    ) async throws -> CLIStreamResult {
         let process = Process()
         let output = Pipe()
+        let errors = Pipe()
         process.executableURL = executableURL
         process.arguments = arguments
         process.standardOutput = output
-        // Kept separate and DISCARDED here. The CLI writes prose to stderr during this flow ("This
-        // VPN session needs a fresh sign-in."), and mixing it into the line stream would hand the
-        // parser text that is not an event.
-        process.standardError = FileHandle.nullDevice
+        /*
+         KEPT SEPARATE, AND KEPT.
+
+         Separate because the CLI writes prose to stderr during this flow ("This VPN session needs a
+         fresh sign-in."), and mixing it into the line stream would hand the parser text that is not
+         an event. But it used to be thrown at `nullDevice`, which meant every reason a sign-in could
+         fail after the browser authorised was destroyed on the way out: the token exchange, the
+         enrolment, the session mint. All of them reached the person as "Sign in did not complete."
+         (reported 2026-08-26 and 2026-08-28).
+
+         It is buffered rather than streamed because nobody reads it until the process has failed.
+        */
+        process.standardError = errors
+        let collectedErrors = ErrorBuffer()
+        errors.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty { return }
+            collectedErrors.append(data)
+        }
 
         // Bytes arrive in whatever chunks the pipe gives, which is not lines. The remainder is held
         // until its newline turns up, so a JSON object split across two reads is not two broken ones.
@@ -110,8 +166,9 @@ actor CLIRunner {
         }
 
         output.fileHandleForReading.readabilityHandler = nil
+        errors.fileHandleForReading.readabilityHandler = nil
         pending.finish()
-        return exitCode
+        return CLIStreamResult(exitCode: exitCode, errorOutput: collectedErrors.text())
     }
 
     private func execute(_ arguments: [String]) async throws -> CLIResult {

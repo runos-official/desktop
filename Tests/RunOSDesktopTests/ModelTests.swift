@@ -60,31 +60,6 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(MenuPresentation.clusterLabel(result.clusters[0]), "vhm-lab (a1b)")
     }
 
-    /*
-     The only thing an account difference may ever put in front of a person.
-
-     The app follows the account you are signed in to by itself. When Conductor wants a fresh
-     sign-in it cannot, and then this is said: a thing to do, naming the account it is for, and
-     never the two-account state behind it.
-    */
-    func testSignInPromptAsksForTheOneThingAPersonCanDo() {
-        let prompt = MenuPresentation.signInPrompt(account: "abcde")
-
-        XCTAssertTrue(prompt.contains("abcde"), "names the account it is for, got \(prompt)")
-        XCTAssertTrue(prompt.lowercased().contains("sign in"), "asks for a sign-in, got \(prompt)")
-        // None of the internals the old message leaked.
-        XCTAssertFalse(prompt.lowercased().contains("mismatch"), "got \(prompt)")
-        XCTAssertFalse(prompt.lowercased().contains("cli"), "got \(prompt)")
-        XCTAssertFalse(prompt.lowercased().contains("still signed in"), "got \(prompt)")
-    }
-
-    func testSignInPromptSurvivesAnUnknownAccount() {
-        let prompt = MenuPresentation.signInPrompt(account: nil)
-
-        XCTAssertFalse(prompt.contains("nil"), "got \(prompt)")
-        XCTAssertFalse(prompt.isEmpty)
-    }
-
     @MainActor
     func testMenuBarStateDerivation() {
         let store = StateStore()
@@ -456,27 +431,48 @@ extension ModelTests {
     }
 
     @MainActor
-    func testExpiredSessionAsksForASignInEvenWithNoAccountMismatch() throws {
-        // The gap: `vpnSignInRequired` was set ONLY by the account-follow path, so a plain expiry
-        // showed no message and no Sign In button. The menu bar tinted and said nothing.
+    func testAnExpiredVPNSessionNeverLooksConnected() throws {
+        /*
+         The 2026-08-25 report: the tunnel INTERFACE stays up through a session expiry, so the menu
+         drew a ticked, connected-looking cluster over a path that dropped every packet.
+
+         The person here is still SIGNED IN. Under FPL26 D1 that is a different fact from the VPN
+         session, and the remedy is to connect again (which asks them to confirm it is them), not to
+         sign in. What must never happen is the menu claiming this is connected.
+        */
         let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":false,"loginRequired":true},"clusters":[{"cid":"c1","name":"One","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#.utf8)
         let store = StateStore()
+        store.cliStatus = Self.signedInCLI()
         store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
-        store.vpnSignInRequired = false
 
-        XCTAssertTrue(store.signInRequired)
+        XCTAssertFalse(store.vpnConnected)
+        XCTAssertNotEqual(store.vpnMenuMode, .connected, "no ticks over a dead path")
         XCTAssertEqual(store.menuBarState, .attention)
+        XCTAssertFalse(store.signInRequired, "the identity is intact; only the tunnel needs redoing")
     }
 
     @MainActor
     func testAWorkingSessionAsksForNothing() throws {
         let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"c1","name":"One","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#.utf8)
         let store = StateStore()
+        store.cliStatus = Self.signedInCLI()
         store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
 
         XCTAssertFalse(store.signInRequired)
         XCTAssertEqual(store.menuBarState, .connected)
     }
+
+    /// A CLI that is signed in. The identity is now read from `runos status`, so a VPN fixture on
+    /// its own no longer says anything about whether the person is signed in.
+    @MainActor
+    private static func signedInCLI() -> CLIStatus {
+        CLIStatus(
+            schemaVersion: 1, authenticated: true, accountId: "abcde", companyName: nil,
+            vpnAccountId: nil, vpnAccountMismatch: nil, vpnRunning: nil, authError: nil,
+            sessionExpired: nil, authErrorKind: nil
+        )
+    }
+
 }
 
 /*
@@ -578,24 +574,31 @@ extension ModelTests {
 */
 extension ModelTests {
     @MainActor
-    private func store(session: String, clusterConnected: Bool = true) throws -> StateStore {
+    private func store(session: String, clusterConnected: Bool = true, signedIn: Bool = true) throws -> StateStore {
         let data = Data((#"{"schemaVersion":1,"running":true,"session":"#
             + session
             + #","clusters":[{"cid":"c1","name":"One","connected":"#
             + (clusterConnected ? "true" : "false")
             + #","reachable":true,"peerUp":true,"peeredWith":[]}]}"#).utf8)
         let store = StateStore()
+        store.cliStatus = CLIStatus(
+            schemaVersion: 1, authenticated: signedIn, accountId: "abcde", companyName: nil,
+            vpnAccountId: nil, vpnAccountMismatch: nil, vpnRunning: nil,
+            authError: signedIn ? nil : "Your session has ended. Run 'runos login' to sign in again.",
+            sessionExpired: nil, authErrorKind: signedIn ? nil : "rejected"
+        )
         store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
         return store
     }
 
     @MainActor
     func testVPNControlsAreUnusableWhileASignInIsOwed() throws {
-        // The tunnel is up and the cluster still reads connected: that is exactly the state that
-        // drew a tick over a dead path. The controls must not be reachable to assert it.
-        let expired = try store(session: #"{"present":false,"loginRequired":true}"#)
-        XCTAssertFalse(expired.vpnControlsUsable)
-        XCTAssertTrue(expired.signInRequired)
+        // No identity, so nothing in that submenu can do what its label says. The tunnel is up and
+        // the cluster still reads connected, which is exactly the state that drew a tick over a
+        // dead path, and the controls must not be reachable to assert it.
+        let out = try store(session: #"{"present":false,"loginRequired":true}"#, signedIn: false)
+        XCTAssertFalse(out.vpnControlsUsable)
+        XCTAssertTrue(out.signInRequired)
     }
 
     @MainActor
@@ -606,12 +609,13 @@ extension ModelTests {
     }
 
     @MainActor
-    func testAnAccountSwitchAlsoLocksTheVPNControls() throws {
-        // The other cause of `signInRequired`. One rule covers both: until the sign-in happens,
-        // nothing in that submenu can do what its label says.
-        let store = try store(session: #"{"present":true,"loginRequired":false}"#)
-        store.vpnSignInRequired = true
-        XCTAssertFalse(store.vpnControlsUsable)
+    func testASignedOutCLILocksTheVPNControlsHoweverTheTunnelLooks() throws {
+        // FPL26 D1. The session below is perfectly live; the IDENTITY is gone. That combination is
+        // the one this app could not previously express at all, because its only notion of being
+        // signed in was the VPN session itself.
+        let out = try store(session: #"{"present":true,"loginRequired":false}"#, signedIn: false)
+        XCTAssertFalse(out.vpnControlsUsable)
+        XCTAssertEqual(out.vpnMenuMode, .signedOut)
     }
 }
 
@@ -628,24 +632,30 @@ extension ModelTests {
 */
 extension ModelTests {
     @MainActor
-    private func mode(session: String, running: Bool, mismatch: Bool = false) throws -> VPNMenuMode {
+    private func mode(session: String, running: Bool, signedIn: Bool = true) throws -> VPNMenuMode {
         let data = Data((#"{"schemaVersion":1,"running":"#
             + (running ? "true" : "false")
             + #","session":"# + session
             + #","clusters":[{"cid":"c1","name":"One","connected":true,"reachable":true,"peerUp":true,"peeredWith":[]}]}"#).utf8)
         let store = StateStore()
+        store.cliStatus = CLIStatus(
+            schemaVersion: 1, authenticated: signedIn, accountId: "abcde", companyName: nil,
+            vpnAccountId: nil, vpnAccountMismatch: nil, vpnRunning: nil,
+            authError: signedIn ? nil : "Your session has ended. Run 'runos login' to sign in again.",
+            sessionExpired: nil, authErrorKind: signedIn ? nil : "rejected"
+        )
         store.vpnStatus = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
-        store.vpnSignInRequired = mismatch
         return store.vpnMenuMode
     }
 
     @MainActor
-    func testAnExpiredSessionIsSignedOutEvenWhileTheTunnelIsUp() throws {
+    func testAnExpiredSessionNeverShowsTheClustersEvenWhileTheTunnelIsUp() throws {
         // The reported defect. `running` is the tunnel INTERFACE and it stays up through an expiry,
-        // so deciding on it drew ticks and a Sign Out over a session that had ended.
+        // so deciding on it drew ticks and a Sign Out over a session that had ended. The person is
+        // still signed in here, so what they are offered is Connect, not a sign-in.
         XCTAssertEqual(
             try mode(session: #"{"present":false,"loginRequired":true}"#, running: true),
-            .signedOut
+            .disconnected
         )
     }
 
@@ -666,9 +676,9 @@ extension ModelTests {
     }
 
     @MainActor
-    func testAnAccountSwitchIsAlsoSignedOut() throws {
+    func testNoIdentityIsSignedOutHoweverGoodTheSessionLooks() throws {
         XCTAssertEqual(
-            try mode(session: #"{"present":true,"loginRequired":false}"#, running: true, mismatch: true),
+            try mode(session: #"{"present":true,"loginRequired":false}"#, running: true, signedIn: false),
             .signedOut
         )
     }
@@ -822,20 +832,14 @@ extension ModelTests {
     }
 
     @MainActor
-    func testAnExpiredSessionShowsTHEBUTTONANDNOTHINGELSE() throws {
+    func testAnExpiredSessionShowsTheButtonAndNothingElse() throws {
         // "You are currently signed out." over a button reading "Sign In" says the same thing
         // twice, the first time in greyed-out text that cannot be acted on. The button is the
-        // statement. `cliSessionExpired` is what the menu keys the line off, so it must be true
-        // here and the sentence must never be built.
+        // statement, so the state must be recognised and no sentence built for it.
         let store = try signedOutStore()
         XCTAssertTrue(store.cliSessionExpired)
         XCTAssertTrue(store.signInRequired)
-    }
-
-    func testAnAccountMismatchKeepsItsOwnSentence() throws {
-        // A different situation with a different thing to say: the VPN belongs to another account.
-        // Collapsing both into "signed out" would lose the part that matters.
-        XCTAssertTrue(MenuPresentation.signInPrompt(account: "acct").contains("acct"))
+        XCTAssertFalse(store.signedIn)
     }
 
     @MainActor
