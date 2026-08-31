@@ -847,13 +847,55 @@ extension ModelTests {
         return store
     }
 
+    /*
+     THE SUPPRESSION ITSELF, driven through a real refresh.
+
+     This used to build a bare StateStore, assign only `cliStatus`, and assert `errorMessage` was
+     nil. It was nil because that is its initial value: no production code ran, and the line the
+     test is named for could be deleted with the whole suite still green. A verifier proved it by
+     changing the coordinator to publish `status.authError` unconditionally; 121 tests passed.
+
+     The suppression lives in the refresh, so the refresh is what has to run.
+    */
     @MainActor
-    func testAnExpiredSessionAsksForASignInWithoutTheParagraph() throws {
+    func testAnExpiredSessionAsksForASignInWithoutTheParagraph() async throws {
         let store = try signedOutStore()
         XCTAssertTrue(store.signInRequired)
+
+        let executable = try makeSignedOutFakeCLI()
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let live = StateStore()
+        let coordinator = RefreshCoordinator(store: live, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        XCTAssertTrue(live.signInRequired)
         // The sentence must not become the error banner. It is not an error; it is the state the
         // Sign In button exists for.
-        XCTAssertNil(store.errorMessage)
+        XCTAssertNil(live.errorMessage, "conductor's paragraph must not reach the menu")
+    }
+
+    /// A fake CLI reporting the expired session verbatim, sentence and all, so the suppression has
+    /// something real to suppress.
+    @MainActor
+    private func makeSignedOutFakeCLI() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appending(path: "fake-runos")
+        let status = #"{"schemaVersion":1,"authenticated":false,"accountId":"acct","sessionExpired":true,"authErrorKind":"rejected","authError":"Your session is 28 hours old and sessions expire after 24. Run `runos login` to sign in again."}"#
+        let vpn = #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#
+        let script = """
+        #!/bin/sh
+        case "$*" in
+          '--version') printf 'dev-2026-08-17T11:42:49Z\n' ;;
+          'status --json') printf '%s\n' '\(status)' ;;
+          'vpn status --json') printf '%s\n' '\(vpn)' ;;
+          *) printf 'unexpected command\n' >&2; exit 7 ;;
+        esac
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        return executable
     }
 
     @MainActor

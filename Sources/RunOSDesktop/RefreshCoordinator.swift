@@ -39,6 +39,19 @@ final class RefreshCoordinator: ObservableObject {
     /// The CLI build the previous refresh saw. A change means somebody updated outside this app,
     /// which is the one event that makes the cached update answer wrong immediately.
     private var lastSeenCLIVersion: String?
+    /*
+     Which refresh is current, so a slow one cannot write its result over a newer one.
+
+     Nothing serialises `refresh`: the guard covers a running ACTION, not another refresh, and
+     `CLIRunner` is an actor that SUSPENDS at its continuation, so concurrent runs interleave rather
+     than queue. Two are reachable together whenever the menu is opened while a poll is in flight,
+     and the poll keeps firing every 30 seconds throughout a sign-in that is waiting on a person.
+
+     The older refresh finishes second and publishes a status read before the newer one, so the menu
+     lands on stale facts: signed out after a sign-in completed, or a tunnel drawn as up after it
+     went down.
+    */
+    private var refreshGeneration = 0
     private var menuIsOpen = false
     private var actionRunning = false
     private var hasStarted = false
@@ -90,6 +103,8 @@ final class RefreshCoordinator: ObservableObject {
 
     private func refresh(allowDuringAction: Bool) async {
         guard allowDuringAction || !actionRunning else { return }
+        refreshGeneration += 1
+        let generation = refreshGeneration
         // Look again before giving up: the poll then picks up a CLI installed since launch on its
         // own, within one cycle, and clears the message that asked for it.
         if runner == nil { adoptNewlyInstalledCLI() }
@@ -167,6 +182,9 @@ final class RefreshCoordinator: ObservableObject {
             }
             let status = try statusResult.decode(CLIStatus.self)
             let vpn = try? vpnResult?.decode(VPNStatus.self)
+            // A newer refresh started while this one was waiting on the CLI, so this answer is
+            // already out of date. Publishing it would put the older facts on screen.
+            guard generation == refreshGeneration else { return }
             update(\.cliStatus, to: status)
             update(\.vpnStatus, to: vpn)
             if let vpn, vpn.running {
@@ -230,6 +248,10 @@ final class RefreshCoordinator: ObservableObject {
      unasked is worse than staying disconnected. A refusal is left to the ordinary status paths
      rather than shouted about, because the person did not press anything.
     */
+    /// The moment the deadline policy is measured against. A var so a test can move time rather
+    /// than wait six hours for the interval this exists to enforce.
+    var now: () -> Date = Date.init
+
     private func autoConnectIfASignInJustCompleted() {
         /*
          A CHECK THAT COULD NOT COMPLETE IS NOT AN OBSERVATION.
@@ -269,7 +291,8 @@ final class RefreshCoordinator: ObservableObject {
      A failure is silent and leaves the previous answer standing. Not knowing whether an update
      exists is not worth an error banner, and it must never disable the VPN controls.
     */
-    private func checkForUpdatesIfDue(now: Date = Date()) async {
+    private func checkForUpdatesIfDue() async {
+        let now = self.now()
         guard let runner else { return }
         if let next = nextUpdateCheck, now < next { return }
         guard let result = try? await runner.run(["update", "--check", "--json"]),

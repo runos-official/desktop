@@ -695,6 +695,151 @@ final class CLIRunnerTests: XCTestCase {
         second.cancel()
     }
 
+    /*
+     THE UPDATE CHECK'S SUCCESS PATH AND ITS WHOLE DEADLINE POLICY SHIPPED UNTESTED.
+
+     No fake CLI in the suite answered `update --check --json`, so every coordinator test hit the
+     catch-all refusal and only ever proved the verdict-less branch. Everything the check does when
+     it WORKS was uncovered: reading the verdict out of the payload, the six-hour interval, the
+     five-minute retry after a failure, and the CLI-version invalidation that was added to fix a
+     reported defect ("the menu went on offering an update that no longer existed", whose reporter
+     called the whole sequence "VERY janky").
+    */
+    @MainActor
+    func testAnAvailableUpdateReachesTheMenu() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
+            "update --check --json": #"{"schemaVersion":1,"cli":{"updated":false,"updateAvailable":true,"currentVersion":"1.17.0","version":"1.18.0"}}"#
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        XCTAssertEqual(store.updateVerdictKnown, true)
+        XCTAssertTrue(store.updateAvailable)
+        XCTAssertTrue(store.updateActionEnabled)
+    }
+
+    // The opposite verdict has to be carried just as faithfully, because it is what DISABLES the
+    // menu item, and reading it wrongly is how the item stays clickable after an update lands.
+    @MainActor
+    func testNoUpdateAvailableDisablesTheAction() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
+            "update --check --json": #"{"schemaVersion":1,"cli":{"updated":false,"updateAvailable":false,"currentVersion":"1.18.0","version":"1.18.0"}}"#
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        XCTAssertEqual(store.updateVerdictKnown, true)
+        XCTAssertFalse(store.updateAvailable)
+        XCTAssertFalse(store.updateActionEnabled)
+    }
+
+    /*
+     THE SIX-HOUR INTERVAL. The check reaches conductor and GitHub, and the poll runs every five
+     seconds with the menu open, so asking a release feed twelve times a minute would be rude to
+     both. Only the interval stops that, and nothing measured it.
+    */
+    @MainActor
+    func testTheUpdateCheckIsNotRunOnEveryRefresh() async throws {
+        let counter = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
+            "update --check --json": "__COUNT__"
+        ], countMarker: counter)
+        defer {
+            try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: counter)
+        }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+        await coordinator.refresh()
+        await coordinator.refresh()
+
+        XCTAssertEqual(try checkCount(counter), 1, "the interval is the only thing stopping this on every poll")
+    }
+
+    // And it does come back. Six hours later the answer may have changed, so the deadline has to
+    // expire rather than latch.
+    @MainActor
+    func testTheUpdateCheckRunsAgainOnceTheIntervalHasPassed() async throws {
+        let counter = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
+            "update --check --json": "__COUNT__"
+        ], countMarker: counter)
+        defer {
+            try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: counter)
+        }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        coordinator.now = { start }
+
+        await coordinator.refresh()
+        coordinator.now = { start.addingTimeInterval(6 * 60 * 60 + 1) }
+        await coordinator.refresh()
+
+        XCTAssertEqual(try checkCount(counter), 2)
+    }
+
+    /*
+     A FAILED CHECK COMES BACK IN MINUTES, NOT HOURS.
+
+     Recording the attempt on the six-hour deadline meant one unreachable minute silenced the check
+     for the rest of the day. The retry is five minutes, and nothing measured which of the two
+     intervals a failure actually took.
+    */
+    @MainActor
+    func testAFailedUpdateCheckRetriesInMinutes() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#
+            // `update --check --json` is deliberately absent, so the fake refuses it.
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        coordinator.now = { start }
+
+        await coordinator.refresh()
+
+        // A check that could not run is not evidence that nothing is waiting, so the item stays
+        // usable. This is the fallback that keeps an unreachable machine able to update at all.
+        XCTAssertEqual(store.updateVerdictKnown, false)
+        XCTAssertTrue(store.updateActionEnabled)
+
+        coordinator.now = { start.addingTimeInterval(6 * 60) } // six minutes, well short of six hours
+        store.updateVerdictKnown = nil
+        await coordinator.refresh()
+
+        XCTAssertEqual(store.updateVerdictKnown, false, "a failed check must be retried in minutes, not hours")
+    }
+
+    private func checkCount(_ marker: URL) throws -> Int {
+        guard let data = try? Data(contentsOf: marker) else { return 0 }
+        return data.count
+    }
+
     private func makeFakeCLI(
         commands: [String: String],
         missingMessage: String = "unexpected command",
