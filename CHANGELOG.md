@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.4.1
+
+- A failed action says so. Every command routed through the menu wrote its failure into the error banner and then refreshed, and the refresh cleared the banner in the same pass. A failed Disconnect, Sign Out or cluster toggle left the tunnel as it was and the app said nothing at all, so the click read as dead.
+- A Connect that fails before it can show you anything now explains itself. The confirmation window waits for a device code, which is right, but `vpn up` can fail before there is one: the enrolment is refused, the daemon is not running, the network is down. The CLI's own explanation was written into a window nobody ever saw, so "Connecting VPN…" appeared and vanished with the VPN still down.
+- Update RunOS is clickable on a machine whose CLI is out of date. Both of the checks that refuse an incompatible CLI returned before the update check ran, so the verdict stayed unknown and the item stayed greyed out. That is precisely the machine that needs it, and the only route left was the terminal command the menu item exists to replace.
+- Sign In can no longer be started twice. The button stayed live for the whole sign-in, so a second click started a second `runos login` beside the first, and both fed one window. The first run's device code could overwrite the one you are meant to compare against the browser page.
+- The menu no longer reports Swift's internal cancellation message. Rescheduling the poll cancels it, and the raw error went into the banner and turned the menu bar icon to the attention state for something entirely routine.
+- A wifi drop no longer takes every VPN control away. A token refresh that could not reach anything was read as being signed out, so the submenu went dead while still showing ticked clusters over a tunnel that was working, Sign Out disappeared, and no Sign In button appeared either.
+- A wifi drop no longer reconnects a tunnel you closed. Coming back online looked like a fresh sign-in, so "Connect VPN Automatically" reopened it.
+- Connection Status stops when you close it. Nothing stopped the diagnostics, so every remaining ping and cluster query kept running for a window that was gone, and reopening it landed stale results.
+- Output from the CLI is no longer occasionally lost. The pipes were closed the moment the process exited rather than drained, which dropped the last line: measured at 0.6% of failure explanations and 2.4% of final results.
+- Launch at Login reflects what System Settings actually says. It was read once at startup, so turning it off elsewhere left the menu claiming it for the rest of the day.
+- Installing the CLI while the app is running now works. The app told you to install it and then ignored you doing so, staying inert until it was restarted.
+- A slow refresh can no longer overwrite a newer one with older facts.
+
 ## v0.4.0
 
 - Tell you when an update is waiting. The menu bar carries a small badge when the CLI or the app has one, and Update RunOS is greyed out when there is nothing to install. It was always enabled and always looked the same, so the only way to find out was to click it and watch.
