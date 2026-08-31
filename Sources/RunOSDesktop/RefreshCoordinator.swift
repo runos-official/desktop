@@ -51,6 +51,20 @@ final class RefreshCoordinator: ObservableObject {
      lands on stale facts: signed out after a sign-in completed, or a tunnel drawn as up after it
      went down.
     */
+    /*
+     True while this app is restarting the service and reading back through it.
+
+     `vpn restart` returns as soon as launchd has relaunched the job, but the new daemon binds its
+     socket only after it has resumed: a tun interface, a conductor poll, and a DNS apply that can
+     take seconds. A refresh inside that window gets the CLI's "not running" for the socket, which
+     `VPNService.isMissing` classifies as the service being absent. The menu then offered "Install
+     VPN Service", seconds after somebody paid an administrator password to restart it, and taking
+     that offer would rewrite the service definition: the one thing `vpn restart` was chosen to
+     avoid.
+
+     A service this app has just restarted is not a service that is missing.
+    */
+    private var restartingService = false
     private var refreshGeneration = 0
     private var menuIsOpen = false
     private var actionRunning = false
@@ -176,7 +190,8 @@ final class RefreshCoordinator: ObservableObject {
                 vpnResult = try await runner.run(["vpn", "status", "--json"])
                 update(\.vpnServiceMissing, to: false)
             } catch {
-                let missing = VPNService.isMissing(error)
+                let missing = StateStore.isServiceGenuinelyMissing(
+                    looksMissing: VPNService.isMissing(error), restartInProgress: restartingService)
                 update(\.vpnServiceMissing, to: missing)
                 if !missing { refreshFailure = error.localizedDescription }
             }
@@ -482,9 +497,21 @@ final class RefreshCoordinator: ObservableObject {
             } catch {
                 failure = error.localizedDescription
             }
+            /*
+             BUSY UNTIL THE REFRESH IS DONE, which is what `perform` and `updateRunOS` both do.
+
+             Clearing first left a window where `isBusy` was false, the Restart VPN item was still
+             drawn and still enabled (vpnStatus is only rewritten near the end of a refresh, three
+             CLI round trips later), and nothing said anything was happening. Somebody who dismissed
+             the password prompt reads that as the restart having failed and clicks again, which
+             passes the only re-entry guard and raises a SECOND administrator prompt and a second
+             tunnel drop.
+            */
+            restartingService = true
+            await refresh(allowDuringAction: true)
+            restartingService = false
             store.operationMessage = nil
             actionRunning = false
-            await refresh(allowDuringAction: true)
             if let failure { store.errorMessage = failure }
             actionTask = nil
         }
@@ -529,9 +556,11 @@ final class RefreshCoordinator: ObservableObject {
         Task {
             // Held until after the refresh, which writes `errorMessage` itself. See `perform`.
             var failure: String?
+            var replacedTheCLI = false
             do {
                 let result = try await runner.run(["update", "--json"])
                 let update = try result.decode(UpdateResult.self)
+                replacedTheCLI = update.cli.updated
                 if update.desktop?.updated == true {
                     _ = try await runner.run(["desktop", "relaunch", "--wait-pid", String(ProcessInfo.processInfo.processIdentifier)])
                     NSApplication.shared.terminate(nil)
@@ -553,7 +582,18 @@ final class RefreshCoordinator: ObservableObject {
              CLI's notice goes to stderr under --json and this app reads stderr only on failure.
              Declining is fine: the menu keeps the item.
             */
-            if failure == nil && store.vpnRestartRequired {
+            /*
+             ONLY THE DRIFT THIS UPDATE CREATED.
+
+             The condition used to ask "is there drift now", which is a different question. Somebody
+             who declined the prompt an hour ago still has drift, by design, and Update RunOS stays
+             clickable whenever the release feed could not be reached. So an Update click that
+             replaced nothing raised a password prompt and dropped their tunnel, overruling the
+             refusal this feature says it honours. They have a Restart VPN item for that choice.
+            */
+            if StateStore.shouldOfferRestartAfterUpdate(
+                succeeded: failure == nil, replacedTheCLI: replacedTheCLI,
+                driftPresent: store.vpnRestartRequired) {
                 restartVPNService()
             }
         }

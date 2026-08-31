@@ -56,15 +56,13 @@ final class VPNRestartRequiredTests: XCTestCase {
     }
 
     /*
-     A DAEMON THAT IS NOT RUNNING IS NOT RESTARTED EITHER.
+     A TUNNEL THAT IS DOWN STILL HAS DRIFT, because the daemon is loaded either way.
 
-     `runos vpn status` answers with a stopped tunnel on a machine where the service is installed
-     and simply not connected, and the daemon still reports its build. Offering a restart there is
-     harmless but pointless: the drift resolves itself the next time it starts.
+     `running` describes the TUNNEL, not the process: launchd keeps the daemon loaded on a machine
+     where the service is installed and simply not connected, and it still answers with its build.
+     The drift does not resolve itself by waiting, so the item is correct here.
     */
     func testAStoppedTunnelStillReportsTheDriftItHas() {
-        // The service exists and its build differs, so the item is still correct: the daemon
-        // process is loaded by launchd whether or not a tunnel is up.
         XCTAssertTrue(store(cli: "1.18.2", daemon: "1.18.1", running: false).vpnRestartRequired)
     }
 
@@ -72,6 +70,48 @@ final class VPNRestartRequiredTests: XCTestCase {
     // presence is the message; the words do not have to carry it as well.
     func testTheMenuItemIsNamedForWhatItDoes() {
         XCTAssertEqual(MenuPresentation.vpnRestartTitle, "Restart VPN")
+    }
+
+    /*
+     WHEN AN UPDATE MAY RAISE THE PASSWORD PROMPT BY ITSELF.
+
+     The prompt is welcome the moment somebody clicks Update, because they are watching. It is not
+     welcome at any other time: it takes a password and drops the tunnel.
+
+     The row that matters is the second. The condition used to be "is there drift now", so an Update
+     click that replaced nothing still prompted, which overruled a refusal made an hour earlier. It
+     is reachable: declining leaves the drift by design, and Update RunOS stays clickable whenever
+     the release feed could not be reached, because an unknown verdict enables it rather than
+     disabling the only way to update.
+    */
+    func testOnlyAnUpdateThatReplacedTheCLIMayPromptByItself() {
+        for (succeeded, replaced, drift, want) in [
+            (true, true, true, true),      // the case it exists for
+            (true, false, true, false),    // THE DEFECT: drift somebody already declined
+            (true, true, false, false),    // nothing to restart
+            (false, true, true, false),    // the update failed; its own message is what matters
+        ] as [(Bool, Bool, Bool, Bool)] {
+            let got = StateStore.shouldOfferRestartAfterUpdate(
+                succeeded: succeeded, replacedTheCLI: replaced, driftPresent: drift)
+            XCTAssertEqual(got, want, "succeeded=\(succeeded) replaced=\(replaced) drift=\(drift)")
+        }
+    }
+
+    /*
+     A SERVICE THIS APP IS RESTARTING IS NOT A SERVICE THAT IS MISSING.
+
+     `vpn restart` returns as soon as launchd relaunches the job, but the new daemon binds its socket
+     only after resuming: a tun interface, a conductor poll, a DNS apply. A read inside that window
+     gets "not running" for the socket, which is otherwise exactly what an absent service looks
+     like. The menu then offered "Install VPN Service" seconds after somebody paid a password to
+     restart it, and taking that offer rewrites the service definition, which is the one thing
+     `vpn restart` was chosen to avoid.
+    */
+    func testAServiceBeingRestartedIsNotReportedMissing() {
+        XCTAssertFalse(StateStore.isServiceGenuinelyMissing(looksMissing: true, restartInProgress: true))
+        // And a genuinely absent service is still reported, or the offer to install it disappears.
+        XCTAssertTrue(StateStore.isServiceGenuinelyMissing(looksMissing: true, restartInProgress: false))
+        XCTAssertFalse(StateStore.isServiceGenuinelyMissing(looksMissing: false, restartInProgress: false))
     }
 
     /*

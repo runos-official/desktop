@@ -164,6 +164,39 @@ final class StateStore: ObservableObject {
         return daemon != cli
     }
 
+    /*
+     Whether an update that has just finished should offer to restart the VPN service.
+
+     THREE THINGS MUST ALL HOLD, because the consequence is an administrator password prompt and a
+     tunnel that drops for a few seconds.
+
+     The update must have SUCCEEDED, or the drift it would fix is not the drift on screen. It must
+     have REPLACED THE CLI: "is there drift now" is a different question, and somebody who declined
+     the prompt an hour ago still has drift by design, while Update RunOS stays clickable whenever
+     the release feed could not be reached. An Update click that replaced nothing must never
+     overrule a refusal this feature promises to honour. And there must BE drift.
+
+     Declining leaves all three true except the first, and the Restart VPN item carries that choice
+     for as long as they want it.
+    */
+    static func shouldOfferRestartAfterUpdate(succeeded: Bool, replacedTheCLI: Bool, driftPresent: Bool) -> Bool {
+        succeeded && replacedTheCLI && driftPresent
+    }
+
+    /*
+     Whether a VPN status failure means the service is genuinely absent.
+
+     NOT WHILE THIS APP IS RESTARTING IT. `vpn restart` returns as soon as launchd relaunches the
+     job, but the new daemon binds its socket only after resuming a tun interface, a conductor poll
+     and a DNS apply, which takes seconds. A read inside that window gets "not running" for the
+     socket, which is otherwise exactly what a missing service looks like. The menu then offered to
+     INSTALL the service seconds after somebody paid a password to restart it, and taking that offer
+     rewrites the service definition, which is the one thing `vpn restart` was chosen to avoid.
+    */
+    static func isServiceGenuinelyMissing(looksMissing: Bool, restartInProgress: Bool) -> Bool {
+        looksMissing && !restartInProgress
+    }
+
     var vpnControlsUsable: Bool { cliStatus != nil && !signInRequired && !vpnServiceMissing }
 
     /*
