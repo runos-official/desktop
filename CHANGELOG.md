@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.3
+
+- The administrator prompt now says who is asking and why. It read "osascript wants to make changes" with no reason given, because the app was asking through a separate scripting tool and macOS names whoever asked. It now names RunOS Desktop and states which action it needs the password for, installing the VPN service or restarting it after an update.
+
 ## v0.4.2
 
 - Offer to restart the VPN service when an update leaves it behind. The service runs the same program the CLI updates, and macOS keeps the old copy loaded until something restarts it, so the VPN carries on running the previous build. Updating from the menu never said so: the CLI writes that notice to a channel this app only reads when a command fails. It now asks straight away, while you are still watching.

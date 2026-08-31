@@ -83,9 +83,23 @@ enum VPNService {
      this app the requester, so the dialog names it, and `with prompt` puts the reason above the
      password field.
 
-     ON THE MAIN THREAD, deliberately. NSAppleScript is documented as main-thread-only, and the
-     authorisation dialog is modal: the app is unresponsive while it is up, which is the ordinary
-     behaviour for a modal password box and lasts exactly as long as the person takes to answer.
+     ON THE MAIN THREAD, and this COSTS SOMETHING. NSAppleScript is documented as main-thread-only,
+     so the main actor is held here. `do shell script` returns the command's stdout, so it does not
+     return until the command has EXITED: the app is unresponsive for the dialog AND for the whole
+     run of `vpn install` or `vpn restart`, not merely while somebody types their password.
+
+     That is a real regression against the previous shape, which ran the same script through a
+     `Process` off the main actor and left the menu drawing throughout. It buys the thing that shape
+     could not have: the dialog names this app and states its business, because macOS attributes an
+     authorisation request to the process that asked, and there it was asking through
+     /usr/bin/osascript.
+
+     THERE IS NO CHEAP BOUND ON IT. AppleScript's `with timeout` does not apply to `do shell script`:
+     MEASURED 2026-08-31, `with timeout of 2 seconds` around `do shell script "sleep 8"` returned
+     successfully after 8.1 seconds. So a wedged CLI would hang the app, and nothing here prevents
+     that. The two commands are short by construction (one writes a plist and bootstraps it, the
+     other is a `launchctl kickstart`), which is the whole of why this trade is acceptable; neither
+     has been timed under root.
     */
     private static func runPrivileged(
         _ command: String, prompt: String, cancelled: String, failed: String
