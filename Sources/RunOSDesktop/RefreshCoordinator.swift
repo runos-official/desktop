@@ -163,6 +163,16 @@ final class RefreshCoordinator: ObservableObject {
     */
     func beginSignIn(purpose: SignInPurpose = .signIn) {
         guard !actionRunning else { return }
+        /*
+         A CONFIRMATION USUALLY OPENS NO WINDOW, so the menu has to say something instead.
+
+         Without this a Connect that needs no confirmation is completely silent: the menu closes,
+         nothing changes for a second or two, and the click reads as dead. The message is cleared on
+         `onEnded`, which fires however the run finishes, window or no window.
+        */
+        if !purpose.presentsWindowImmediately {
+            store.operationMessage = purpose.busyMessage
+        }
         SignInWindowController.shared.show(
             runner: runner,
             purpose: purpose,

@@ -65,6 +65,34 @@ enum SignInPurpose: Equatable {
         }
     }
 
+    /*
+     WHETHER THE WINDOW OPENS ON SPEC, OR WAITS UNTIL THERE IS SOMETHING TO SHOW.
+
+     MEASURED 2026-08-31 by clicking Connect in the running app, thirty seconds after signing in.
+     Conductor was satisfied, so no device code was ever issued, and yet a modal titled "Confirm
+     it's you" appeared and vanished on its own. A window that asks you to prove who you are and
+     then withdraws the question reads as something having gone wrong, and it is the COMMON case:
+     most connects happen while the sign-in is still fresh.
+
+     Sign In is the opposite. The person asked for it, a device code is certain, and opening at once
+     is what puts the code on screen before a browser can take focus.
+    */
+    var presentsWindowImmediately: Bool {
+        switch self {
+        case .signIn: return true
+        case .confirm: return false
+        }
+    }
+
+    /// What the MENU says while this runs without a window of its own. A silent connect with no
+    /// progress anywhere looks like a dead click.
+    var busyMessage: String {
+        switch self {
+        case .signIn: return "Signing in…"
+        case .confirm: return "Connecting VPN…"
+        }
+    }
+
     /// What to say when the CLI failed and said nothing on stderr for us to quote.
     var genericFailure: String {
         switch self {
@@ -262,7 +290,27 @@ final class SignInWindowController {
             }
         )
         model.onEnded = onEnded
+
+        /*
+         DEFERRED FOR A CONFIRMATION, IMMEDIATE FOR A SIGN-IN.
+
+         A connect usually needs no confirmation at all, and opening the window on spec meant a
+         modal reading "Confirm it's you" appeared and withdrew itself on the common path (measured
+         2026-08-31 in the running app). It now waits for a device code, which is the first moment
+         there is anything to show or anything to compare.
+        */
+        if purpose.presentsWindowImmediately {
+            presentPanel(panel)
+        } else {
+            model.onDeviceCode = { [weak self] in
+                guard let self, let panel = self.window else { return }
+                self.presentPanel(panel)
+            }
+        }
         model.start()
+    }
+
+    private func presentPanel(_ panel: NSPanel) {
         NSApplication.shared.activate(ignoringOtherApps: true)
         panel.center()
         panel.makeKeyAndOrderFront(nil)

@@ -207,6 +207,36 @@ final class SignInParityTests: XCTestCase {
         XCTAssertFalse(DesktopCommands.connectVPNAtStartup().contains("--no-browser"))
     }
 
+    /*
+     A CONNECT MUST NOT FLASH A WINDOW AT SOMEBODY WHO NEEDS NO CONFIRMATION.
+
+     MEASURED 2026-08-31 by clicking Connect in the running app, thirty seconds after signing in.
+     Conductor was perfectly happy, so no device code was ever issued, and yet a modal titled
+     "Confirm it's you" appeared and vanished on its own. A window that asks you to prove who you
+     are and then withdraws the question is worse than no window: it reads as something having gone
+     wrong, and it is the common case, because most connects happen right after a sign-in.
+
+     Sign In is the opposite. The person deliberately asked to sign in, a device code is certain to
+     come, and the window IS the command; opening it at once is what puts the code on screen before
+     any browser can take focus.
+    */
+    func testConnectingDoesNotOpenAWindowUntilThereIsSomethingToShow() {
+        XCTAssertTrue(SignInPurpose.signIn.presentsWindowImmediately,
+                      "a sign-in always produces a device code, and the window is the command")
+        XCTAssertFalse(SignInPurpose.confirm.presentsWindowImmediately,
+                       "a connect usually needs no confirmation, so the window must wait for a code")
+    }
+
+    /// While a connect runs windowless, the menu still has to say something is happening.
+    func testAWindowlessConnectStillReportsItselfInTheMenu() {
+        XCTAssertFalse(SignInPurpose.confirm.busyMessage.isEmpty,
+                       "a silent connect with no progress anywhere looks like a dead click")
+        XCTAssertTrue(SignInPurpose.confirm.busyMessage.lowercased().contains("connect"),
+                      "it must name what it is doing, got \(SignInPurpose.confirm.busyMessage)")
+        XCTAssertFalse(SignInPurpose.confirm.busyMessage.lowercased().contains("sign in"),
+                       "connecting is not signing in, got \(SignInPurpose.confirm.busyMessage)")
+    }
+
     // MARK: - The CLI's own words
 
     /*
