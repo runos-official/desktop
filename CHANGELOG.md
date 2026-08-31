@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.2
+
+- Offer to restart the VPN service when an update leaves it behind. The service runs the same program the CLI updates, and macOS keeps the old copy loaded until something restarts it, so the VPN carries on running the previous build. Updating from the menu never said so: the CLI writes that notice to a channel this app only reads when a command fails. It now asks straight away, while you are still watching.
+- Decline it and a **Restart VPN** item stays in the menu for as long as it is needed, so you can take it whenever suits. It appears only while there is something to restart for.
+- The prompt only ever follows an update that actually installed something. Declining once no longer means a later Update click asks again for a restart you already refused.
+
 ## v0.4.1
 
 - A failed action says so. Every command routed through the menu wrote its failure into the error banner and then refreshed, and the refresh cleared the banner in the same pass. A failed Disconnect, Sign Out or cluster toggle left the tunnel as it was and the app said nothing at all, so the click read as dead.
