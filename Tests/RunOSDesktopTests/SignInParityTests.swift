@@ -237,6 +237,70 @@ final class SignInParityTests: XCTestCase {
                        "connecting is not signing in, got \(SignInPurpose.confirm.busyMessage)")
     }
 
+    // MARK: - Connecting automatically
+
+    /*
+     REPORTED 2026-08-31: "i have connect vpn at startup selected, but after logging in, it doesn't
+     auto connect."
+
+     It fired exactly once, in the app's init, and nowhere else. On a machine that launches the app
+     at login that means it ran while the person was still signed out, `vpn up --non-interactive`
+     refused because there was no identity, and nothing ever retried. The setting looked broken
+     precisely when it was most wanted: the first connect of the day.
+
+     The preference means "connect when you can", so it fires again at the moment an identity
+     becomes usable, which is a sign-in completing.
+    */
+    func testAutoConnectFiresWhenASignInMakesItPossible() {
+        XCTAssertTrue(AutoConnect.shouldConnect(enabled: true, wasSignedIn: false, isSignedIn: true, tunnelRunning: false),
+                      "signing in is the moment the setting exists for")
+    }
+
+    /// Off is off. Bringing up a tunnel nobody asked for was itself a report.
+    func testAutoConnectDoesNothingWhenTheSettingIsOff() {
+        XCTAssertFalse(AutoConnect.shouldConnect(enabled: false, wasSignedIn: false, isSignedIn: true, tunnelRunning: false))
+    }
+
+    /*
+     A MANUAL DISCONNECT MUST STICK, and this is the case that makes the rule a TRANSITION rather
+     than a state.
+
+     "signed in and the tunnel is down" is true immediately after somebody clicks Disconnect. Acting
+     on that would reconnect them within seconds, over and over, and there would be no way to turn
+     the VPN off without turning the setting off first.
+    */
+    func testAutoConnectNeverUndoesAManualDisconnect() {
+        XCTAssertFalse(AutoConnect.shouldConnect(enabled: true, wasSignedIn: true, isSignedIn: true, tunnelRunning: false),
+                       "already signed in is not a new sign-in; the person just disconnected")
+    }
+
+    /// First observation of all, at app launch. The startup connect in the app's init owns that
+    /// moment; acting here as well would run two connects over each other.
+    func testAutoConnectLeavesTheFirstObservationToStartup() {
+        XCTAssertFalse(AutoConnect.shouldConnect(enabled: true, wasSignedIn: nil, isSignedIn: true, tunnelRunning: false))
+    }
+
+    /// Nothing to do when it is already up.
+    func testAutoConnectDoesNothingWhenTheTunnelIsAlreadyUp() {
+        XCTAssertFalse(AutoConnect.shouldConnect(enabled: true, wasSignedIn: false, isSignedIn: true, tunnelRunning: true))
+    }
+
+    /// Signing OUT is not a reason to connect anything.
+    func testAutoConnectIgnoresASignOut() {
+        XCTAssertFalse(AutoConnect.shouldConnect(enabled: true, wasSignedIn: true, isSignedIn: false, tunnelRunning: false))
+    }
+
+    /*
+     The label has to say what it does. "at Startup" is why the report reads as a bug rather than a
+     misunderstanding: the person ticked a box that promised a connection and did not get one.
+    */
+    func testTheSettingIsNamedForWhatItDoes() {
+        XCTAssertFalse(AutoConnect.menuLabel.lowercased().contains("startup"),
+                       "it no longer only happens at startup, got \(AutoConnect.menuLabel)")
+        XCTAssertTrue(AutoConnect.menuLabel.lowercased().contains("automatic"),
+                      "got \(AutoConnect.menuLabel)")
+    }
+
     // MARK: - The CLI's own words
 
     /*

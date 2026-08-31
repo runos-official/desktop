@@ -6,7 +6,7 @@ import ServiceManagement
 struct RunOSDesktopApp: App {
     @StateObject private var coordinator: RefreshCoordinator
     @StateObject private var loginItem = LoginItemController()
-    @StateObject private var startupConnect = StartupConnectController()
+    @StateObject private var startupConnect: StartupConnectController
 
     init() {
         if CommandLine.arguments.contains("--unregister-login-item") {
@@ -22,13 +22,19 @@ struct RunOSDesktopApp: App {
             store.cliAvailable = false
             store.errorMessage = error.localizedDescription
         }
-        let coordinator = RefreshCoordinator(store: store, runner: runner)
+        /*
+         ONE controller for the whole app. The menu toggle and the coordinator have to read the same
+         setting, and two instances would each hold their own @Published copy: toggling the menu
+         would leave the coordinator still believing the old value until the next launch.
+        */
+        let autoConnect = StartupConnectController()
+        _startupConnect = StateObject(wrappedValue: autoConnect)
+        let coordinator = RefreshCoordinator(store: store, runner: runner, autoConnect: autoConnect)
         _coordinator = StateObject(wrappedValue: coordinator)
         coordinator.start()
-        // Connect-at-startup, if the person asked for it. Read straight from the store rather than
-        // through the StateObject: property wrappers are not available until the body runs, and
-        // this is the one moment the preference exists for.
-        if StartupConnectController().isEnabled {
+        // At app start, if the person asked for it. The coordinator connects again when a sign-in
+        // completes, which is the case this alone used to miss (see AutoConnect).
+        if autoConnect.isEnabled {
             coordinator.connectVPNAtStartup()
         }
     }

@@ -231,7 +231,7 @@ struct MenuContentView: View {
                 get: { loginItem.isEnabled },
                 set: { loginItem.setEnabled($0) }
             ))
-            Toggle("Connect VPN at Startup", isOn: Binding(
+            Toggle(AutoConnect.menuLabel, isOn: Binding(
                 get: { startupConnect.isEnabled },
                 set: { startupConnect.setEnabled($0) }
             ))

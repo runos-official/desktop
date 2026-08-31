@@ -8,14 +8,28 @@ final class RefreshCoordinator: ObservableObject {
     private let runner: CLIRunner?
     private var pollTask: Task<Void, Never>?
     private var actionTask: Task<Void, Never>?
+
+    /*
+     The sign-in state the previous refresh saw, so a sign-in COMPLETING can be told from simply
+     being signed in. nil means nothing has been read yet.
+
+     See AutoConnect.shouldConnect for why this has to be a transition: "signed in with the tunnel
+     down" is also true one second after somebody clicks Disconnect.
+    */
+    private var wasSignedIn: Bool?
     private var menuIsOpen = false
     private var actionRunning = false
     private var hasStarted = false
     private var storeObservation: AnyCancellable?
 
-    init(store: StateStore, runner: CLIRunner?) {
+    /// The auto-connect preference, injected so a test can hand in its own UserDefaults rather than
+    /// reading the developer's real one.
+    private let autoConnect: StartupConnectController
+
+    init(store: StateStore, runner: CLIRunner?, autoConnect: StartupConnectController = StartupConnectController()) {
         self.store = store
         self.runner = runner
+        self.autoConnect = autoConnect
         storeObservation = store.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
@@ -96,6 +110,7 @@ final class RefreshCoordinator: ObservableObject {
              as the one sentence the CLI now writes for it.
             */
             update(\.errorMessage, to: store.signInRequired ? nil : status.authError)
+            autoConnectIfASignInJustCompleted()
         } catch {
             update(\.errorMessage, to: error.localizedDescription)
         }
@@ -115,6 +130,29 @@ final class RefreshCoordinator: ObservableObject {
      an account change both drop it, in the CLI, where the identity actually lives. This app simply
      reads the result, and the person clicks Connect when they want the new account connected.
     */
+
+    /*
+     Bring the VPN up when a sign-in has just made it possible, and the person asked for that.
+
+     Reported: "i have connect vpn at startup selected, but after logging in, it doesn't auto
+     connect." The startup connect ran once in the app's init, while the person was still signed out,
+     and nothing retried. This is the retry, and it happens at the only moment worth retrying at.
+
+     `--non-interactive`, so it can never open a browser on its own: a browser window appearing
+     unasked is worse than staying disconnected. A refusal is left to the ordinary status paths
+     rather than shouted about, because the person did not press anything.
+    */
+    private func autoConnectIfASignInJustCompleted() {
+        let signedIn = store.signedIn
+        defer { wasSignedIn = signedIn }
+        guard AutoConnect.shouldConnect(
+            enabled: autoConnect.isEnabled,
+            wasSignedIn: wasSignedIn,
+            isSignedIn: signedIn,
+            tunnelRunning: store.vpnStatus?.running == true
+        ) else { return }
+        connectVPNAtStartup()
+    }
 
     func perform(
         _ arguments: [String],

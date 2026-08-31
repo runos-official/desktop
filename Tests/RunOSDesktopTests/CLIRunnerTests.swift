@@ -357,11 +357,117 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertEqual(store.errorMessage, "Could not reach the sign-in service. Check your connection; your sign-in is unaffected.")
     }
 
+    /*
+     THE WIRING, not just the decision.
+
+     `AutoConnect.shouldConnect` has a table of its own, and it would still pass if nothing ever
+     called it. That exact gap was found earlier the same day on the CLI side: the pure functions
+     were green while the call sites had been reverted. So this drives real refreshes and counts
+     what the CLI was actually asked to run.
+
+     The sign-in has to change in the CLI's OWN answer. The coordinator remembers the previous
+     sign-in state itself, so writing to the store cannot produce the transition.
+    */
+    @MainActor
+    func testASignInCompletingConnectsTheVPNWhenAutoConnectIsOn() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: "auto-\(UUID().uuidString)")
+        let answers = FileManager.default.temporaryDirectory.appending(path: "status-\(UUID().uuidString)")
+        try signedOut.write(to: answers, atomically: true, encoding: .utf8)
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": "__FILE__",
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
+            "vpn up --non-interactive --json": "__COUNT__"
+        ], countMarker: marker, answerFile: answers)
+        defer {
+            try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: marker)
+            try? FileManager.default.removeItem(at: answers)
+        }
+        let coordinator = RefreshCoordinator(
+            store: StateStore(),
+            runner: try CLIRunner(executableURL: executable),
+            autoConnect: StartupConnectController(defaults: enabledAutoConnectDefaults())
+        )
+
+        // Signed out. Nothing to connect with, and nothing must be attempted.
+        await coordinator.refresh()
+        XCTAssertEqual(countRuns(marker), 0, "there is no identity yet")
+
+        // The sign-in completes. THIS is the moment the setting exists for, and the moment the old
+        // code missed: it only ever tried once, in the app's init.
+        try signedIn.write(to: answers, atomically: true, encoding: .utf8)
+        await coordinator.refresh()
+        for _ in 0..<200 where countRuns(marker) == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(countRuns(marker), 1, "a completed sign-in must connect")
+
+        // And it must not keep doing it on every poll thereafter.
+        await coordinator.refresh()
+        await coordinator.refresh()
+        XCTAssertEqual(countRuns(marker), 1, "still signed in is not a new sign-in")
+    }
+
+    /// Off is off, however the sign-in state moves.
+    @MainActor
+    func testASignInDoesNotConnectWhenAutoConnectIsOff() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: "noauto-\(UUID().uuidString)")
+        let answers = FileManager.default.temporaryDirectory.appending(path: "status-\(UUID().uuidString)")
+        try signedOut.write(to: answers, atomically: true, encoding: .utf8)
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": "__FILE__",
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#,
+            "vpn up --non-interactive --json": "__COUNT__"
+        ], countMarker: marker, answerFile: answers)
+        defer {
+            try? FileManager.default.removeItem(at: executable.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: marker)
+            try? FileManager.default.removeItem(at: answers)
+        }
+        let coordinator = RefreshCoordinator(
+            store: StateStore(),
+            runner: try CLIRunner(executableURL: executable),
+            autoConnect: StartupConnectController(defaults: disabledAutoConnectDefaults())
+        )
+
+        await coordinator.refresh()
+        try signedIn.write(to: answers, atomically: true, encoding: .utf8)
+        await coordinator.refresh()
+
+        XCTAssertEqual(countRuns(marker), 0)
+    }
+
+    private var signedOut: String {
+        #"{"schemaVersion":1,"authenticated":false,"authError":"signed out","authErrorKind":"rejected"}"#
+    }
+
+    private var signedIn: String {
+        #"{"schemaVersion":1,"authenticated":true,"accountId":"abcde"}"#
+    }
+
+    private func disabledAutoConnectDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "autoconnect-off-\(UUID().uuidString)")!
+    }
+
+    /// A UserDefaults of its own, so a test never reads or writes the developer's real preference.
+    private func enabledAutoConnectDefaults() -> UserDefaults {
+        let suite = UserDefaults(suiteName: "autoconnect-test-\(UUID().uuidString)")!
+        suite.set(true, forKey: "connectVPNAtStartup")
+        return suite
+    }
+
+    private func countRuns(_ marker: URL) -> Int {
+        (try? String(contentsOf: marker, encoding: .utf8))?.filter { $0 == "x" }.count ?? 0
+    }
+
     private func makeFakeCLI(
         commands: [String: String],
         missingMessage: String = "unexpected command",
         delayMarker: URL? = nil,
-        countMarker: URL? = nil
+        countMarker: URL? = nil,
+        answerFile: URL? = nil
     ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -372,6 +478,12 @@ final class CLIRunnerTests: XCTestCase {
                 // Appends one mark per invocation, so a test can count how often it ran.
                 let escapedCounter = countMarker.path.replacingOccurrences(of: "'", with: "'\\''")
                 script += "  '\(arguments)') printf 'x' >> '\(escapedCounter)'; printf '{}\\n' ;;\n"
+            } else if output == "__FILE__", let answerFile {
+                // The answer comes from a file the test rewrites between polls. Some state the
+                // coordinator tracks ITSELF, such as a sign-in completing, can only be reached by
+                // the CLI genuinely changing its answer; poking the store cannot reproduce it.
+                let escapedFile = answerFile.path.replacingOccurrences(of: "'", with: "'\\''")
+                script += "  '\(arguments)') cat '\(escapedFile)' ;;\n"
             } else if output == "__WAIT__" {
                 script += "  '\(arguments)') exec sleep 3 ;;\n"
             } else if output.hasPrefix("__DELAY__"), let delayMarker {
