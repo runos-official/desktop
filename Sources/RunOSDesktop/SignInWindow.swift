@@ -133,9 +133,19 @@ final class SignInRunner: ObservableObject {
     /// window on screen; a purpose that opens immediately never needs it.
     var onDeviceCode: (() -> Void)?
 
-    /// Fires once when the run finishes, however it finishes. The caller clears its own progress
-    /// state on this, which matters most for a run that never opened a window to close.
-    var onEnded: (() -> Void)?
+    /*
+     Fires once when the run finishes, however it finishes, carrying the failure sentence or nil.
+
+     IT CARRIES THE SENTENCE because a `.confirm` run defers its window until a device code
+     arrives, and `runos vpn up` can exit nonzero before there is one: conductor refuses the
+     enrolment, the mint fails, the daemon is not running. `phase` is rendered only inside the
+     panel, so a failure written there and nowhere else is a failure nobody can see. The caller
+     clears its own progress state on this and now has something to say as well.
+
+     nil means nothing to report: the run succeeded, or somebody cancelled it, and a cancellation
+     is not a fault.
+    */
+    var onEnded: ((String?) -> Void)?
 
     init(runner: CLIRunner?, purpose: SignInPurpose, onFinished: @escaping () -> Void) {
         self.runner = runner
@@ -152,6 +162,16 @@ final class SignInRunner: ObservableObject {
         deviceID = nil
         url = nil
         phase = .starting
+        /*
+         ONE RUN AT A TIME, enforced rather than assumed.
+
+         The router below is a single static reference, and the comment on it says only one sign-in
+         exists at a time. Nothing made that true: a second start reassigned the router and left
+         the first `runos login` polling unattended, delivering its lines into this model. Stopping
+         it here is the only place that can, because the abandoned model is not referenced by
+         anything afterwards.
+        */
+        if let outgoing = SignInRunner.current, outgoing !== self { outgoing.cancel() }
         SignInRunner.current = self
         let purpose = self.purpose
         task = Task { [weak self] in
@@ -180,7 +200,10 @@ final class SignInRunner: ObservableObject {
         task?.cancel()
         task = nil
         phase = .failed("Sign in cancelled.")
-        endOnce()
+        // The stream is nobody's now. Leaving a cancelled run holding the router would send a
+        // later run's lines to a model that has stopped.
+        if SignInRunner.current === self { SignInRunner.current = nil }
+        endOnce(nil) // backing out is not a fault to report
     }
 
     func copyURL() {
@@ -199,11 +222,11 @@ final class SignInRunner: ObservableObject {
 
     private func fail(_ message: String) {
         phase = .failed(message)
-        endOnce()
+        endOnce(message)
     }
 
-    private func endOnce() {
-        onEnded?()
+    private func endOnce(_ failure: String?) {
+        onEnded?(failure)
         onEnded = nil
     }
 
@@ -238,12 +261,17 @@ final class SignInRunner: ObservableObject {
     private func finish(_ result: CLIStreamResult) {
         if result.exitCode == 0 {
             phase = .authorized
-            endOnce()
+            endOnce(nil)
             onFinished()
             return
         }
-        endOnce()
-        if case .failed = phase { return }
+        // The sentence is settled BEFORE the run is ended, so `onEnded` can carry it out to a
+        // caller whose window never opened. It used to end first and set the phase afterwards,
+        // which left the only copy of the reason inside a panel nobody had seen.
+        if case .failed(let alreadyReported) = phase {
+            endOnce(alreadyReported)
+            return
+        }
         /*
          THE CLI'S OWN SENTENCE, when it wrote one.
 
@@ -252,7 +280,9 @@ final class SignInRunner: ObservableObject {
          told the sign-in "did not complete" and never which part, or what to do. The CLI writes a
          remedy on that stream; showing it costs nothing and is almost always the whole answer.
         */
-        phase = .failed(result.failureSentence ?? purpose.genericFailure)
+        let sentence = result.failureSentence ?? purpose.genericFailure
+        phase = .failed(sentence)
+        endOnce(sentence)
     }
 }
 
@@ -286,7 +316,7 @@ final class SignInWindowController: NSObject, NSWindowDelegate {
         runner: CLIRunner?,
         purpose: SignInPurpose,
         onFinished: @escaping () -> Void,
-        onEnded: @escaping () -> Void = {}
+        onEnded: @escaping (String?) -> Void = { _ in }
     ) {
         let panel = window ?? makePanel()
         window = panel

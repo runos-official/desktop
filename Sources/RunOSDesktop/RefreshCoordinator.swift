@@ -94,11 +94,26 @@ final class RefreshCoordinator: ObservableObject {
             update(\.cliVersion, to: currentVersion)
             update(\.cliDevelopment, to: compatibility == .development)
             update(\.cliOutdated, to: compatibility == .outdated)
+            /*
+             A CLI THIS APP CANNOT WORK WITH STILL LEAVES UPDATE CLICKABLE.
+
+             Both of these returned before `checkForUpdatesIfDue` ever ran, so `updateVerdictKnown`
+             stayed nil, which `updateActionEnabled` reads as "nothing asked yet" and renders
+             disabled. The machine with the outdated CLI was therefore the one machine where the
+             control that fixes it could not be pressed, and the only route left was the terminal
+             command the menu item exists to save somebody from.
+
+             `false` is the honest value: we asked nothing and learned nothing, which is not
+             evidence that no update exists. The three-state verdict was introduced for exactly
+             this, and these two paths were missed.
+            */
             if compatibility == .outdated {
+                update(\.updateVerdictKnown, to: false)
                 update(\.errorMessage, to: "RunOS Desktop requires CLI \(minimumCLIVersion) or newer. Run 'runos update'.")
                 return
             }
             if compatibility == .invalid {
+                update(\.updateVerdictKnown, to: false)
                 update(\.errorMessage, to: "RunOS Desktop cannot identify CLI version '\(currentVersion)'. Run 'runos update'.")
                 return
             }
@@ -109,6 +124,16 @@ final class RefreshCoordinator: ObservableObject {
              the daemon and its remedy was thrown away (reported 2026-08-25). The failure is now
              classified: a missing service is a state with a button, anything else is an error.
             */
+            /*
+             HELD, NOT ASSIGNED. A refresh writes `errorMessage` exactly ONCE, at the end.
+
+             This used to assign here and be overwritten twenty-one lines below by the unconditional
+             `authError` line, in the same synchronous pass, so SwiftUI never rendered it: a VPN
+             daemon that refused to answer produced an ordinary submenu offering Connect and no word
+             anywhere about the refusal. Anything that wants to report a failure from inside a
+             refresh puts it in this variable.
+            */
+            var refreshFailure: String?
             var vpnResult: CLIResult?
             do {
                 vpnResult = try await runner.run(["vpn", "status", "--json"])
@@ -116,7 +141,7 @@ final class RefreshCoordinator: ObservableObject {
             } catch {
                 let missing = VPNService.isMissing(error)
                 update(\.vpnServiceMissing, to: missing)
-                if !missing { update(\.errorMessage, to: error.localizedDescription) }
+                if !missing { refreshFailure = error.localizedDescription }
             }
             let status = try statusResult.decode(CLIStatus.self)
             let vpn = try? vpnResult?.decode(VPNStatus.self)
@@ -137,9 +162,21 @@ final class RefreshCoordinator: ObservableObject {
              person whose menu has gone quiet should know the app cannot reach anything, but it shows
              as the one sentence the CLI now writes for it.
             */
-            update(\.errorMessage, to: store.signInRequired ? nil : status.authError)
+            update(\.errorMessage, to: refreshFailure ?? (store.signInRequired ? nil : status.authError))
             autoConnectIfASignInJustCompleted()
             await checkForUpdatesIfDue()
+        } catch is CancellationError {
+            /*
+             A CANCELLATION IS THE APP TIDYING UP, NOT SOMETHING TO REPORT.
+
+             The poll task is cancelled on every teardown and on every reschedule. Swift's own
+             CancellationError has no message written for a person: its localizedDescription is
+             "The operation couldn't be completed. (Swift.CancellationError error 1.)", which this
+             put straight into the menu and, because `menuBarState` reads any errorMessage as
+             trouble, turned the menu bar icon to the attention state for a routine reschedule.
+
+             Nothing is lost by staying quiet. The next refresh reports whatever is really wrong.
+            */
         } catch {
             update(\.errorMessage, to: error.localizedDescription)
         }
@@ -242,11 +279,19 @@ final class RefreshCoordinator: ObservableObject {
         store.cancellingOperationMessage = cancellable ? cancellingMessage : nil
         store.errorMessage = nil
         actionTask = Task {
+            /*
+             HELD UNTIL AFTER THE REFRESH. Assigning `store.errorMessage` here and then refreshing
+             lost the sentence: the refresh ends by writing `errorMessage` itself, so the failure
+             was nil again before the menu ever drew. `store.errorMessage` is the menu's only
+             failure surface, so a failed Disconnect, Sign Out or cluster toggle read as a dead
+             click: the tunnel stayed up and the app said nothing.
+            */
+            var failure: String?
             do {
                 _ = try await runner.run(arguments)
             } catch is CancellationError {
             } catch {
-                store.errorMessage = error.localizedDescription
+                failure = error.localizedDescription
             }
             let wasCancelled = Task.isCancelled
             store.canCancelOperation = false
@@ -255,6 +300,7 @@ final class RefreshCoordinator: ObservableObject {
             if !wasCancelled {
                 await refresh(allowDuringAction: true)
             }
+            if let failure { store.errorMessage = failure }
             actionRunning = false
             store.operationMessage = nil
             actionTask = nil
@@ -275,6 +321,17 @@ final class RefreshCoordinator: ObservableObject {
     func beginSignIn(purpose: SignInPurpose = .signIn) {
         guard !actionRunning else { return }
         /*
+         CLAIMED, so the guard above is worth something.
+
+         It was never assigned on this path, so the guard never fired: the Sign In button stays
+         enabled for the whole login (a `.signIn` sets no operationMessage, so `isBusy` is false),
+         and the panel is non-modal so the menu bar stays clickable. The CLI runs with --no-browser,
+         so nothing opens by itself and somebody who reads the click as dead clicks again, starting
+         a second `runos login` beside the first. It also let a Disconnect or a Sign Out start in
+         the middle of a sign-in.
+        */
+        actionRunning = true
+        /*
          A CONFIRMATION USUALLY OPENS NO WINDOW, so the menu has to say something instead.
 
          Without this a Connect that needs no confirmation is completely silent: the menu closes,
@@ -290,8 +347,16 @@ final class RefreshCoordinator: ObservableObject {
             onFinished: { [weak self] in
                 Task { await self?.refresh() }
             },
-            onEnded: { [weak self] in
-                self?.store.operationMessage = nil
+            /*
+             A run that never opened a window still has to report. `.confirm` defers its window
+             until a device code arrives, and `runos vpn up` can fail before there is one, which
+             used to leave "Connecting VPN…" appearing and vanishing with nothing said anywhere.
+            */
+            onEnded: { [weak self] failure in
+                guard let self else { return }
+                self.actionRunning = false
+                self.store.operationMessage = nil
+                if let failure { self.store.errorMessage = failure }
             }
         )
     }
@@ -321,15 +386,18 @@ final class RefreshCoordinator: ObservableObject {
         store.operationMessage = "Installing the RunOS VPN service…"
         store.errorMessage = nil
         actionTask = Task {
+            // Held until after the refresh, which writes `errorMessage` itself. See `perform`.
+            var failure: String?
             do {
                 _ = try await VPNService.install(cliPath: CLIPathResolver.resolve().path)
                 store.vpnServiceMissing = false
             } catch {
-                store.errorMessage = error.localizedDescription
+                failure = error.localizedDescription
             }
             store.operationMessage = nil
             actionRunning = false
             await refresh(allowDuringAction: true)
+            if let failure { store.errorMessage = failure }
         }
     }
 
@@ -369,6 +437,8 @@ final class RefreshCoordinator: ObservableObject {
         store.operationMessage = "Updating RunOS…"
         store.errorMessage = nil
         Task {
+            // Held until after the refresh, which writes `errorMessage` itself. See `perform`.
+            var failure: String?
             do {
                 let result = try await runner.run(["update", "--json"])
                 let update = try result.decode(UpdateResult.self)
@@ -378,9 +448,10 @@ final class RefreshCoordinator: ObservableObject {
                     return
                 }
             } catch {
-                store.errorMessage = error.localizedDescription
+                failure = error.localizedDescription
             }
             await refresh(allowDuringAction: true)
+            if let failure { store.errorMessage = failure }
             actionRunning = false
             store.operationMessage = nil
         }

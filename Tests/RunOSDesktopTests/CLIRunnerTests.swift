@@ -462,6 +462,239 @@ final class CLIRunnerTests: XCTestCase {
         (try? String(contentsOf: marker, encoding: .utf8))?.filter { $0 == "x" }.count ?? 0
     }
 
+    /*
+     A FAILED ACTION HAS TO LEAVE ITS SENTENCE ON SCREEN.
+
+     `perform` writes the failure into `store.errorMessage`, then calls `refresh`, whose last act is
+     `update(\.errorMessage, to: store.signInRequired ? nil : status.authError)`. For a healthy
+     sign-in `authError` is nil, so that line writes nil over the failure 21 lines later in the same
+     synchronous pass. SwiftUI never renders it.
+
+     `store.errorMessage` is the menu's ONLY failure surface, so the click reads as dead: the person
+     presses Disconnect, the tunnel stays up, and the app says nothing at all. Every command routed
+     through `perform` is affected, and so are Install VPN Service and Update RunOS, which have the
+     same set-then-refresh shape.
+
+     The comment above that line names this exact swallowing as the defect reported 2026-08-25 and
+     says it is fixed. It was fixed at the point where the error is raised, and reintroduced by the
+     next statement.
+    */
+    @MainActor
+    func testAFailedActionKeepsItsErrorOnScreen() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[]}"#
+        ], missingMessage: "the RunOS VPN service is not responding")
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        coordinator.perform(["vpn", "down", "--json"], message: "Disconnecting…")
+        for _ in 0..<200 where store.isBusy {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(store.errorMessage, "the RunOS VPN service is not responding",
+                       "a command that failed must still be saying so once the spinner stops")
+    }
+
+    /*
+     The same overwrite, reached through the refresh itself rather than through an action.
+
+     A `vpn status` that fails for any reason OTHER than the service being missing is classified as
+     an error and assigned. Twenty-one lines later the same pass nils it. The menu then draws an
+     ordinary VPN submenu offering Connect, and never says the daemon refused to answer.
+    */
+    @MainActor
+    func testAVPNStatusFailureThatIsNotAMissingServiceReachesTheMenu() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#
+        ], missingMessage: "the VPN daemon is not answering")
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        XCTAssertFalse(store.vpnServiceMissing, "the service is installed; it refused the question")
+        XCTAssertEqual(store.errorMessage, "the VPN daemon is not answering")
+    }
+
+    /*
+     AN OUTDATED CLI MUST NOT DISABLE THE ONE CONTROL THAT FIXES IT.
+
+     `refresh` returns early when the CLI is too old or its version cannot be read, before
+     `checkForUpdatesIfDue` ever runs. `updateVerdictKnown` therefore stays nil, which
+     `updateActionEnabled` reads as "nothing asked yet" and renders disabled.
+
+     So the machine whose CLI is out of date is exactly the machine where Update RunOS cannot be
+     clicked. The app tells the person to run `runos update` in a terminal, which is the thing the
+     menu item exists to save them from, and the three-state verdict was introduced precisely so
+     that "no verdict" would still leave the control usable.
+    */
+    @MainActor
+    func testAnOutdatedCLIStillLetsYouClickUpdate() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "1.0.0",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        XCTAssertTrue(store.cliOutdated)
+        XCTAssertTrue(store.updateActionEnabled,
+                      "the machine with the outdated CLI is the one that needs this control most")
+    }
+
+    // The same, for a version string the app cannot parse at all. It is no more evidence that an
+    // update is absent than an outdated one is.
+    @MainActor
+    func testAnUnreadableCLIVersionStillLetsYouClickUpdate() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "not-a-version",
+            "status --json": #"{"schemaVersion":1,"authenticated":true,"accountId":"acct"}"#,
+            "vpn status --json": #"{"schemaVersion":1,"running":false,"session":{"present":false,"loginRequired":false},"clusters":[]}"#
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        await coordinator.refresh()
+
+        XCTAssertTrue(store.updateActionEnabled)
+    }
+
+    /*
+     CANCELLING IS NOT A FAULT, AND ITS INTERNAL NAME IS NOT A SENTENCE.
+
+     The poll refresh runs in a Task that is cancelled on every teardown and on every new schedule.
+     A cancellation surfaces as Swift's own `CancellationError`, whose `localizedDescription` is the
+     untranslated string "The operation couldn\u{2019}t be completed. (Swift.CancellationError error 1.)".
+     The outer catch assigns it verbatim, which puts that in the menu and turns the menu bar icon to
+     the attention state because `menuBarState` reads any errorMessage as trouble.
+    */
+    @MainActor
+    func testACancelledRefreshSaysNothingAtAll() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "status --json": "__WAIT__"
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let store = StateStore()
+        let coordinator = RefreshCoordinator(store: store, runner: try CLIRunner(executableURL: executable))
+
+        let task = Task { await coordinator.refresh() }
+        try await Task.sleep(for: .milliseconds(120))
+        task.cancel()
+        _ = await task.value
+
+        XCTAssertNil(store.errorMessage, "a cancellation is the app tidying up, not something to report")
+        XCTAssertNotEqual(store.menuBarState, .attention)
+    }
+
+    /*
+     A CONNECT THAT FAILS BEFORE A DEVICE CODE MUST STILL SAY WHY.
+
+     `.confirm` defers its window until a device code arrives, because a connect that needs no
+     confirmation was opening and withdrawing a modal on the common path. But `runos vpn up` can
+     exit nonzero BEFORE any device code: conductor refuses the enrolment, the session mint fails,
+     the daemon is not running, the network is down. No device code means no window, ever.
+
+     `finish` then wrote the CLI's own sentence into `phase`, which is rendered only inside the
+     panel nobody saw, and `onEnded` carried nothing, so the coordinator cleared its progress
+     message and wrote no error. The person watched "Connecting VPN…" appear and vanish, the VPN
+     stayed down, and nothing anywhere said why.
+
+     That is the same shape as the reported defect the deferred window was built to avoid, arriving
+     on the failure path. The stderr capture added for exactly this reason captured the remedy and
+     then dropped it.
+    */
+    @MainActor
+    func testAConnectThatFailsBeforeADeviceCodeStillReportsWhy() async throws {
+        let executable = try makeFakeCLI(
+            commands: ["--version": "dev-2026-08-17T11:42:49Z"],
+            missingMessage: "device enrolment was refused: this device is not registered"
+        )
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let runner = try CLIRunner(executableURL: executable)
+        let model = SignInRunner(runner: runner, purpose: .confirm, onFinished: {})
+        var reported: String??
+        model.onEnded = { reported = $0 }
+
+        model.start()
+        for _ in 0..<200 where reported == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(reported ?? nil, "device enrolment was refused: this device is not registered",
+                       "a run that never opened a window must still hand its failure back")
+    }
+
+    // A cancellation is not a failure, so it must hand back nothing to report. Closing the window
+    // is the ordinary way somebody backs out, and an error banner for it would be wrong.
+    @MainActor
+    func testCancellingASignInReportsNoFailure() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "vpn up --json --no-browser": "__WAIT__"
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let runner = try CLIRunner(executableURL: executable)
+        let model = SignInRunner(runner: runner, purpose: .confirm, onFinished: {})
+        var reported: String??
+        model.onEnded = { reported = $0 }
+
+        model.start()
+        try await Task.sleep(for: .milliseconds(120))
+        model.cancel()
+
+        XCTAssertNotNil(reported, "onEnded must fire on a cancellation")
+        XCTAssertNil(reported ?? nil, "a cancellation has nothing to report")
+    }
+
+    /*
+     STARTING A SECOND SIGN-IN MUST STOP THE FIRST.
+
+     `SignInRunner` routes every streamed line through one static `current`, on the stated
+     assumption that "only one sign-in window exists at a time". Nothing enforced that for RUNS.
+     `beginSignIn` guards on `actionRunning` and never assigns it, so the Sign In button stayed
+     live for the whole login, and the panel is a non-modal NSPanel so the menu bar stayed
+     clickable. The CLI runs with --no-browser, so nothing opens by itself and somebody who thinks
+     the click did nothing clicks again.
+
+     A second `start()` reassigned the static router without stopping the first process, so two
+     `runos login` runs delivered into one model. Concrete damage: the first run's device code
+     overwrites the one the person is meant to compare against the browser page, which defeats the
+     only anti-spoofing check the window exists for; and its timeout, five minutes later, flips a
+     still-valid window to a failure.
+    */
+    @MainActor
+    func testASecondSignInStopsTheFirst() async throws {
+        let executable = try makeFakeCLI(commands: [
+            "--version": "dev-2026-08-17T11:42:49Z",
+            "login --json --no-browser": "__WAIT__"
+        ])
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let runner = try CLIRunner(executableURL: executable)
+        let first = SignInRunner(runner: runner, purpose: .signIn, onFinished: {})
+        first.start()
+        try await Task.sleep(for: .milliseconds(120))
+
+        let second = SignInRunner(runner: runner, purpose: .signIn, onFinished: {})
+        second.start()
+
+        XCTAssertEqual(first.phase, .failed("Sign in cancelled."),
+                       "the run that lost the stream must be stopped, not left polling unattended")
+        XCTAssertEqual(second.phase, .starting)
+        second.cancel()
+    }
+
     private func makeFakeCLI(
         commands: [String: String],
         missingMessage: String = "unexpected command",
