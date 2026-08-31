@@ -18,8 +18,18 @@ final class RefreshCoordinator: ObservableObject {
     */
     private var wasSignedIn: Bool?
 
-    /// When the update check last ran. See `checkForUpdatesIfDue` for why it is not on the poll.
-    private var lastUpdateCheck: Date?
+    /*
+     When the update check may run again. See `checkForUpdatesIfDue` for why it is not on the poll.
+
+     A DEADLINE rather than a "last ran", because a failed check must come back sooner than a
+     successful one. Recording the attempt up front meant one unreachable minute silenced the check
+     for six hours.
+    */
+    private var nextUpdateCheck: Date?
+
+    /// The CLI build the previous refresh saw. A change means somebody updated outside this app,
+    /// which is the one event that makes the cached update answer wrong immediately.
+    private var lastSeenCLIVersion: String?
     private var menuIsOpen = false
     private var actionRunning = false
     private var hasStarted = false
@@ -66,6 +76,21 @@ final class RefreshCoordinator: ObservableObject {
             let version = try await runner.run(["--version"])
             let currentVersion = String(decoding: version.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             let compatibility = VersionComparator.compatibility(currentVersion, minimum: minimumCLIVersion)
+            /*
+             A CLI THAT CHANGED UNDER US INVALIDATES THE UPDATE ANSWER, at once.
+
+             Reported 2026-08-31: the operator ran `runos update` in a terminal, and the menu went
+             on offering an update that no longer existed, because this check only runs every six
+             hours. Their word for the whole sequence was "VERY janky".
+
+             The version is already read on every refresh for the compatibility floor, so noticing
+             it changed costs nothing. This is the one event that makes the cached answer wrong
+             immediately rather than eventually.
+            */
+            if let seen = lastSeenCLIVersion, seen != currentVersion {
+                nextUpdateCheck = nil
+            }
+            lastSeenCLIVersion = currentVersion
             update(\.cliVersion, to: currentVersion)
             update(\.cliDevelopment, to: compatibility == .development)
             update(\.cliOutdated, to: compatibility == .outdated)
@@ -171,8 +196,7 @@ final class RefreshCoordinator: ObservableObject {
     */
     private func checkForUpdatesIfDue(now: Date = Date()) async {
         guard let runner else { return }
-        if let last = lastUpdateCheck, now.timeIntervalSince(last) < updateCheckInterval { return }
-        lastUpdateCheck = now
+        if let next = nextUpdateCheck, now < next { return }
         guard let result = try? await runner.run(["update", "--check", "--json"]),
               let check = try? result.decode(UpdateCheck.self) else {
             /*
@@ -183,15 +207,25 @@ final class RefreshCoordinator: ObservableObject {
              a machine that could not reach the release feed would have no way to update at all.
             */
             update(\.updateVerdictKnown, to: false)
+            // RETRY SOON, not in six hours. The interval exists to be polite about a question whose
+            // answer changes a few times a month, not to punish a machine for one bad minute. A
+            // network blip on the morning this shipped would otherwise have left the app with no
+            // verdict until the evening.
+            nextUpdateCheck = now.addingTimeInterval(updateRetryInterval)
             return
         }
         update(\.updateAvailable, to: check.anyAvailable)
         update(\.updateVerdictKnown, to: check.verdictKnown)
+        nextUpdateCheck = now.addingTimeInterval(updateCheckInterval)
     }
 
     /// Six hours. A release lands a few times a month, so anything shorter is noise on somebody
     /// else's servers.
     private let updateCheckInterval: TimeInterval = 6 * 60 * 60
+
+    /// After a check that could not run. Long enough not to hammer a service that is down, short
+    /// enough that a passing blip does not cost the rest of the day.
+    private let updateRetryInterval: TimeInterval = 5 * 60
 
     func perform(
         _ arguments: [String],
@@ -330,7 +364,7 @@ final class RefreshCoordinator: ObservableObject {
     func updateRunOS() {
         guard !actionRunning, let runner else { return }
         // Whatever the answer was, it is stale the moment this runs.
-        lastUpdateCheck = nil
+        nextUpdateCheck = nil
         actionRunning = true
         store.operationMessage = "Updating RunOS…"
         store.errorMessage = nil
