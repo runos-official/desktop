@@ -147,7 +147,7 @@ extension JSONDecoder {
  */
 enum StatsFormatting {
     static func bytes(_ value: Int64?) -> String {
-        guard let value, value >= 0 else { return "—" }
+        guard let value, value >= 0 else { return "unknown" }
         let formatter = ByteCountFormatter()
         formatter.countStyle = .binary
         return formatter.string(fromByteCount: value)

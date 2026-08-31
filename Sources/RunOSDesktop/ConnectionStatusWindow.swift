@@ -39,9 +39,19 @@ final class ConnectionStatusRunner: ObservableObject {
     @Published private(set) var clusterOrder: [String] = []
 
     private var task: Task<Void, Never>?
+    /*
+     The per-cluster children, held so they can be stopped.
+
+     A child Task inherits actor isolation but NOT cancellation, so cancelling the parent left every
+     one of these running: a handful of `ping -c 2 -W 2000` per cluster, about four seconds each for
+     an unreachable node, plus a `runos nodes list` per cluster. `runStep`'s cancellation guard
+     reads the CHILD's own flag, which the parent's cancellation never sets, so nothing stopped
+     early either.
+    */
+    private var children: [Task<Void, Never>] = []
 
     func start(vpn: VPNStatus?) {
-        task?.cancel()
+        cancelWork()
         steps = []
         clusterOrder = []
         guard let vpn, vpn.running else {
@@ -88,15 +98,25 @@ final class ConnectionStatusRunner: ObservableObject {
             let running = clusters.map { cluster in
                 Task { await self.testCluster(cluster) }
             }
+            self.children = running
             for child in running {
                 await child.value
             }
+            self.children = []
             self.isRunning = false
         }
     }
 
-    func stop() {
+    // Stops the parent AND the children. Cancelling only the parent left the pings running, which
+    // is what made a closed window keep spawning processes and a reopened one land stale verdicts.
+    private func cancelWork() {
         task?.cancel()
+        children.forEach { $0.cancel() }
+        children.removeAll()
+    }
+
+    func stop() {
+        cancelWork()
         isRunning = false
     }
 
@@ -193,10 +213,22 @@ final class ConnectionStatusRunner: ObservableObject {
 }
 
 @MainActor
-final class ConnectionStatusWindowController {
+final class ConnectionStatusWindowController: NSObject, NSWindowDelegate {
     static let shared = ConnectionStatusWindowController()
     private var window: NSPanel?
     private let runner = ConnectionStatusRunner()
+
+    /*
+     CLOSING THE WINDOW STOPS THE WORK, and it did not.
+
+     `stop()` had no caller anywhere, and no delegate was set, so closing the window left every
+     remaining ping and `runos nodes list` running for a window nobody could see. The person does
+     not even have to close it: the menu item stays enabled while it runs, so clicking it again
+     restarts on top of work that never stopped.
+    */
+    func windowWillClose(_ notification: Notification) {
+        runner.stop()
+    }
 
     func show(vpn: VPNStatus?) {
         let panel = window ?? makePanel()
@@ -220,6 +252,7 @@ final class ConnectionStatusWindowController {
             defer: false
         )
         panel.title = "Connection Status"
+        panel.delegate = self
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         return panel

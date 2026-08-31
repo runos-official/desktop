@@ -8,6 +8,9 @@ final class StateStore: ObservableObject {
     @Published var traffic = TrafficSampler()
     @Published var errorMessage: String?
     @Published var operationMessage: String?
+    /// Whether the running operation is an update, so the menu title does not have to recognise the
+    /// progress sentence. Set beside `operationMessage` in `RefreshCoordinator.updateRunOS`.
+    @Published var isUpdating = false
     @Published var canCancelOperation = false
     @Published var cancelOperationLabel: String?
     @Published var cancellingOperationMessage: String?
@@ -129,7 +132,20 @@ final class StateStore: ObservableObject {
      button sits directly above the submenu; signing in mints a new session and rebuilds the tunnel,
      so the stale one does not need tearing down by hand first.
     */
-    var vpnControlsUsable: Bool { signedIn && !vpnServiceMissing }
+    /*
+     NOT `signedIn`, which is a bare `authenticated == true`.
+
+     A token refresh that could not COMPLETE reports `authenticated: false` with
+     `authErrorKind: "network"`, which `signInRequired` deliberately excludes and `signedIn` does
+     not. So an ordinary wifi drop made both false at once: the whole VPN submenu went dead while
+     still drawing ticked cluster toggles over a tunnel that was genuinely carrying traffic, Sign
+     Out disappeared, and no Sign In button was drawn either, because that is gated on
+     `signInRequired`. Every control gone and nothing offered.
+
+     A check that could not run must leave the controls as they were. `signInRequired` already
+     encodes that distinction; this now asks the same question.
+    */
+    var vpnControlsUsable: Bool { cliStatus != nil && !signInRequired && !vpnServiceMissing }
 
     /*
      Whether Update RunOS can do anything if clicked.
@@ -161,9 +177,17 @@ final class StateStore: ObservableObject {
 
     var activeAccountId: String? { cliStatus?.accountId }
     var isBusy: Bool { operationMessage != nil }
-    var updateActionTitle: String {
-        operationMessage == "Updating RunOS…" ? "Updating RunOS…" : "Update RunOS"
-    }
+    /*
+     A FLAG, not a string comparison against a sentence.
+
+     This compared `operationMessage` against the literal "Updating RunOS…", produced a file away in
+     the coordinator. Nothing coupled the two but the exact bytes, ellipsis included, and
+     `operationMessage` is prose rendered to a person, which is the one thing the house rule says a
+     caller must never branch on. Rewording it would have silently shown a greyed-out "Update RunOS"
+     for the whole of a running update, and no test would have failed: both of them assign the
+     literal by hand rather than driving `updateRunOS()`.
+    */
+    var updateActionTitle: String { isUpdating ? "Updating RunOS…" : "Update RunOS" }
 
     var menuBarState: MenuBarState {
         if isBusy || errorMessage != nil || cliOutdated || signInRequired {

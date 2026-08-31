@@ -16,7 +16,7 @@ enum ConnectionDiagnostics {
         guard exitCode == 0 else {
             return PingVerdict(reachable: false, detail: "no reply")
         }
-        // "round-trip min/avg/max/stddev = 1.177/1.377/1.577/nan ms" — the average is the number
+        // "round-trip min/avg/max/stddev = 1.177/1.377/1.577/nan ms", where the average is the number
         // a person compares between nodes.
         if let range = output.range(of: "round-trip"),
            let equals = output.range(of: "= ", range: range.lowerBound..<output.endIndex) {

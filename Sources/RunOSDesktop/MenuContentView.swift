@@ -52,8 +52,8 @@ enum MenuPresentation {
         guard cluster.isDeadConnection else { return base }
         let reason = (cluster.reason ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return reason.isEmpty
-            ? "\(base) — not connected"
-            : "\(base) — not connected: \(reason)"
+            ? "\(base): not connected"
+            : "\(base): not connected, \(reason)"
     }
 }
 
@@ -91,7 +91,12 @@ struct MenuContentView: View {
             }
             Button("Quit RunOS Desktop") { NSApplication.shared.terminate(nil) }
         }
-        .onAppear { coordinator.setMenuOpen(true) }
+        .onAppear {
+            coordinator.setMenuOpen(true)
+            // The person can change this in System Settings, so the toggle is re-read rather than
+            // remembered from launch. See LoginItemController.refresh.
+            loginItem.refresh()
+        }
         .onDisappear { coordinator.setMenuOpen(false) }
     }
 
@@ -387,7 +392,7 @@ private struct AboutContentView: View {
             trafficChart
             ForEach(connectedClusters) { cluster in
                 Divider()
-                statRow(MenuPresentation.clusterLabel(name: cluster.name, cid: cluster.cid), cluster.endpoint ?? "—")
+                statRow(MenuPresentation.clusterLabel(name: cluster.name, cid: cluster.cid), cluster.endpoint ?? "unknown")
                 statRow(
                     "Traffic",
                     "↓ \(StatsFormatting.bytes(cluster.rxBytes))   ↑ \(StatsFormatting.bytes(cluster.txBytes))"

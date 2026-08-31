@@ -105,14 +105,39 @@ final class ModelTests: XCTestCase {
         )
     }
 
+    /*
+     THE TITLE FOLLOWS A FLAG, NOT A SENTENCE.
+
+     This used to assign the literal "Updating RunOS…" to `operationMessage` by hand and then check
+     the title recognised it, which tested nothing but that two copies of one string were equal. The
+     production code compared `operationMessage` against that literal, written a file away in the
+     coordinator, with nothing coupling them but the exact bytes, ellipsis included. Rewording the
+     coordinator's progress line would have left a greyed-out "Update RunOS" on screen for the whole
+     of a running update, and this test would still have passed.
+
+     `operationMessage` is prose rendered to a person, which is the one thing the house rule says a
+     caller must never branch on.
+    */
     @MainActor
     func testUpdateActionShowsProgressWhileUpdateRuns() {
         let store = StateStore()
         XCTAssertEqual(store.updateActionTitle, "Update RunOS")
 
-        store.operationMessage = "Updating RunOS…"
+        store.isUpdating = true
 
         XCTAssertEqual(store.updateActionTitle, "Updating RunOS…")
+    }
+
+    // And the title must not follow a DIFFERENT operation's progress. Signing out sets a progress
+    // message too, and the Update item is not what is running.
+    @MainActor
+    func testAnotherOperationDoesNotRenameTheUpdateAction() {
+        let store = StateStore()
+
+        store.operationMessage = "Signing out…"
+
+        XCTAssertEqual(store.updateActionTitle, "Update RunOS")
+        XCTAssertFalse(store.updateActionEnabled, "nothing is clickable while something else runs")
     }
 
     func testCommandConstruction() {
@@ -287,7 +312,7 @@ extension ModelTests {
     }
 
     func testStatsFormattingBytesAndHandshake() {
-        XCTAssertEqual(StatsFormatting.bytes(nil), "—")
+        XCTAssertEqual(StatsFormatting.bytes(nil), "unknown")
         XCTAssertEqual(StatsFormatting.bytes(0), "Zero KB")
         XCTAssertTrue(StatsFormatting.bytes(222_298_112).contains("MB"))
         let now = Date(timeIntervalSince1970: 1_787_000_000)

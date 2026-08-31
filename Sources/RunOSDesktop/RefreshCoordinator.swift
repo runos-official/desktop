@@ -5,7 +5,16 @@ import Foundation
 @MainActor
 final class RefreshCoordinator: ObservableObject {
     let store: StateStore
-    private let runner: CLIRunner?
+    /*
+     A VAR, because a CLI can be installed while this app is running.
+
+     It used to be a `let` resolved once at launch. First launch with no CLI showed "RunOS Desktop
+     cannot find the RunOS CLI. Install or update the CLI, then run 'runos desktop install'.", the
+     person followed that instruction, and NOTHING changed: `refresh` returns immediately while this
+     is nil, so the message was never re-evaluated and the whole menu stayed inert until the app was
+     quit and reopened. The app told somebody to do a thing and then ignored them doing it.
+    */
+    private var runner: CLIRunner?
     private var pollTask: Task<Void, Never>?
     private var actionTask: Task<Void, Never>?
 
@@ -70,8 +79,21 @@ final class RefreshCoordinator: ObservableObject {
         await refresh(allowDuringAction: false)
     }
 
+    /// Re-resolves the CLI path, for the case where it was missing at launch and has since been
+    /// installed. Silent on failure: the message from launch is still the right one.
+    private func adoptNewlyInstalledCLI() {
+        guard let found = try? CLIRunner(executableURL: CLIPathResolver.resolve()) else { return }
+        runner = found
+        update(\.cliAvailable, to: true)
+        update(\.errorMessage, to: nil)
+    }
+
     private func refresh(allowDuringAction: Bool) async {
-        guard (allowDuringAction || !actionRunning), let runner else { return }
+        guard allowDuringAction || !actionRunning else { return }
+        // Look again before giving up: the poll then picks up a CLI installed since launch on its
+        // own, within one cycle, and clears the message that asked for it.
+        if runner == nil { adoptNewlyInstalledCLI() }
+        guard let runner else { return }
         do {
             let version = try await runner.run(["--version"])
             let currentVersion = String(decoding: version.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -209,6 +231,22 @@ final class RefreshCoordinator: ObservableObject {
      rather than shouted about, because the person did not press anything.
     */
     private func autoConnectIfASignInJustCompleted() {
+        /*
+         A CHECK THAT COULD NOT COMPLETE IS NOT AN OBSERVATION.
+
+         `signedIn` is a bare `authenticated == true`, and the CLI reports `authenticated: false`
+         with `authErrorKind: "network"` for a token refresh that could not REACH anything, not only
+         for one that was refused (FCR160). It refreshes on every `runos status`, so any poll taken
+         offline produces that payload.
+
+         Recording it as "was signed out" manufactured a sign-in transition on the way back:
+         somebody clicks Disconnect and walks into a lift, one poll reports the network kind, the
+         next poll reports the sign-in that never went anywhere, and auto-connect reads that as a
+         fresh sign-in and reopens the tunnel they deliberately closed.
+
+         Leaving the memory alone is right: nothing was learned, so nothing changed.
+        */
+        guard store.cliStatus?.authErrorKind != "network" else { return }
         let signedIn = store.signedIn
         defer { wasSignedIn = signedIn }
         guard AutoConnect.shouldConnect(
@@ -435,6 +473,7 @@ final class RefreshCoordinator: ObservableObject {
         nextUpdateCheck = nil
         actionRunning = true
         store.operationMessage = "Updating RunOS…"
+        store.isUpdating = true
         store.errorMessage = nil
         Task {
             // Held until after the refresh, which writes `errorMessage` itself. See `perform`.
@@ -453,6 +492,7 @@ final class RefreshCoordinator: ObservableObject {
             await refresh(allowDuringAction: true)
             if let failure { store.errorMessage = failure }
             actionRunning = false
+            store.isUpdating = false
             store.operationMessage = nil
         }
     }
