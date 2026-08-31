@@ -257,9 +257,24 @@ final class SignInRunner: ObservableObject {
 }
 
 @MainActor
-final class SignInWindowController {
+final class SignInWindowController: NSObject, NSWindowDelegate {
     static let shared = SignInWindowController()
     private var window: NSPanel?
+    /// The run this window is driving, so closing the window can stop it. See windowWillClose.
+    private var current: SignInRunner?
+
+    /*
+     CLOSING THE WINDOW IS CANCELLING, and it was not.
+
+     The panel is `.closable`, and the red button called neither `cancel()` nor `onEnded`. So the
+     CLI carried on polling for its full five minutes with nothing on screen, and the menu stayed on
+     "Connecting VPN…" with every action disabled for the whole time. The Cancel button did the
+     right thing; the red button, which is the one people reach for to dismiss a window, did not.
+    */
+    func windowWillClose(_ notification: Notification) {
+        current?.cancel()
+        current = nil
+    }
 
     /*
      Run the device-code flow, and put a window on screen when the purpose says to.
@@ -280,13 +295,16 @@ final class SignInWindowController {
         panel.title = purpose.windowTitle
         let model = SignInRunner(runner: runner, purpose: purpose) { [weak self] in
             onFinished()
+            // Clear it first: closing the window is a cancellation, and this run has SUCCEEDED.
+            self?.current = nil
             self?.window?.close()
         }
+        current = model
+        panel.delegate = self
         panel.contentView = NSHostingView(
             rootView: SignInView(model: model) { [weak self] in
-                model.cancel()
+                // `close()` cancels through windowWillClose, so this only has to close.
                 self?.window?.close()
-                onEnded()
             }
         )
         model.onEnded = onEnded
