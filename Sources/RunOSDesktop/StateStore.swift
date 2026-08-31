@@ -15,6 +15,23 @@ final class StateStore: ObservableObject {
     @Published var cliOutdated = false
     @Published var cliDevelopment = false
     @Published var cliVersion: String?
+
+    /*
+     Whether an update is waiting for either component, from `runos update --check --json`.
+
+     Kept separate from every VPN state on purpose: an update waiting is not a VPN problem, and a
+     disconnected VPN must not hide that one is waiting.
+    */
+    @Published var updateAvailable = false
+
+    /*
+     Whether the CLI answered the update question at all. nil until the first check, and false
+     against a CLI too old to carry the verdict.
+
+     Kept separate from `updateAvailable` because the two consumers want opposite defaults: see
+     `UpdateCheck.verdictKnown`.
+    */
+    @Published var updateVerdictKnown: Bool?
     /*
      The VPN system service is not installed, so nothing can carry a tunnel.
 
@@ -112,6 +129,23 @@ final class StateStore: ObservableObject {
      so the stale one does not need tearing down by hand first.
     */
     var vpnControlsUsable: Bool { signedIn && !vpnServiceMissing }
+
+    /*
+     Whether Update RunOS can do anything if clicked.
+
+     DISABLED, NOT HIDDEN, which is the rule this menu already follows for the VPN submenu: someone
+     opening the menu looking for it should find it where it always is and see there is nothing to
+     do, rather than watch it vanish and wonder what the app has lost.
+
+     False while an update is already running, so it cannot be started twice.
+    */
+    var updateActionEnabled: Bool {
+        guard operationMessage == nil else { return false }
+        // Disabled only when we KNOW there is nothing to install. An unknown leaves it clickable,
+        // so an app running against an older CLI can still update itself.
+        guard updateVerdictKnown == true else { return true }
+        return updateAvailable
+    }
 
     var activeAccountId: String? { cliStatus?.accountId }
     var isBusy: Bool { operationMessage != nil }

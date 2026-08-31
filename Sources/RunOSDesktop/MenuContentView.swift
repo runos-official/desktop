@@ -226,7 +226,12 @@ struct MenuContentView: View {
     @ViewBuilder
     private var actionItems: some View {
         Group {
+            /*
+             DISABLED, NOT HIDDEN, when there is nothing to install. Same rule as the VPN submenu:
+             a person who opens this menu looking for it should find it where it always is.
+            */
             Button(store.updateActionTitle) { coordinator.updateRunOS() }
+                .disabled(!store.updateActionEnabled)
             Toggle("Launch at Login", isOn: Binding(
                 get: { loginItem.isEnabled },
                 set: { loginItem.setEnabled($0) }

@@ -237,3 +237,48 @@ extension VPNStatus {
         clusters.reduce(0) { $0 + ($1.rxBytes ?? 0) + ($1.txBytes ?? 0) }
     }
 }
+
+/*
+ What `runos update --check --json` answers: is there anything to install, for either component?
+
+ MEASURED 2026-08-31, before the CLI carried a verdict. The payloads for "you are current" and "an
+ update is waiting" were identical apart from an English sentence, and for the desktop they were
+ byte-identical. So this app could not tell, and its Update RunOS item was always enabled: the only
+ way to learn whether anything was waiting was to click it and watch.
+
+ `updateAvailable` is the flag. Everything else here is for display.
+*/
+struct UpdateCheck: Decodable, Equatable, Sendable {
+    struct Component: Decodable, Equatable, Sendable {
+        /*
+         Absent on an older CLI, and absent must mean "nothing waiting".
+
+         The alternative, treating an unknown as an update, would badge the menu bar on every poll
+         against a CLI that simply predates the field, which is worse than never badging it.
+        */
+        let updateAvailable: Bool?
+        /// What is installed now. `version` is the LATEST known version, which is not the same thing.
+        let currentVersion: String?
+        let version: String?
+
+        var waiting: Bool { updateAvailable == true }
+    }
+
+    let schemaVersion: Int?
+    let cli: Component
+    /// Absent when RunOS Desktop is not installed at all.
+    let desktop: Component?
+
+    /// Either component having something to install is something to install.
+    var anyAvailable: Bool { cli.waiting || (desktop?.waiting ?? false) }
+
+    /*
+     Whether this CLI answered the question at all.
+
+     An older CLI carries no `updateAvailable` field, and the two cases must not be collapsed. The
+     BADGE needs certainty, so an unknown must not light it. The Update ITEM needs the opposite: an
+     unknown must leave it clickable, because disabling it would make a desktop that shipped ahead
+     of the CLI permanently unable to update itself, which is worse than the behaviour it replaced.
+    */
+    var verdictKnown: Bool { cli.updateAvailable != nil || desktop?.updateAvailable != nil }
+}

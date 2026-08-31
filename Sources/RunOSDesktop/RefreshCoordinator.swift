@@ -17,6 +17,9 @@ final class RefreshCoordinator: ObservableObject {
      down" is also true one second after somebody clicks Disconnect.
     */
     private var wasSignedIn: Bool?
+
+    /// When the update check last ran. See `checkForUpdatesIfDue` for why it is not on the poll.
+    private var lastUpdateCheck: Date?
     private var menuIsOpen = false
     private var actionRunning = false
     private var hasStarted = false
@@ -111,6 +114,7 @@ final class RefreshCoordinator: ObservableObject {
             */
             update(\.errorMessage, to: store.signInRequired ? nil : status.authError)
             autoConnectIfASignInJustCompleted()
+            await checkForUpdatesIfDue()
         } catch {
             update(\.errorMessage, to: error.localizedDescription)
         }
@@ -153,6 +157,31 @@ final class RefreshCoordinator: ObservableObject {
         ) else { return }
         connectVPNAtStartup()
     }
+
+    /*
+     Ask whether an update is waiting, RARELY.
+
+     Not on the ordinary poll. That runs every five seconds with the menu open, and this check
+     reaches conductor and GitHub; asking a release feed twelve times a minute to answer a question
+     whose answer changes a few times a month would be rude to both. Once on the first refresh, then
+     every six hours, which is well inside the time anyone would notice a new release.
+
+     A failure is silent and leaves the previous answer standing. Not knowing whether an update
+     exists is not worth an error banner, and it must never disable the VPN controls.
+    */
+    private func checkForUpdatesIfDue(now: Date = Date()) async {
+        guard let runner else { return }
+        if let last = lastUpdateCheck, now.timeIntervalSince(last) < updateCheckInterval { return }
+        lastUpdateCheck = now
+        guard let result = try? await runner.run(["update", "--check", "--json"]),
+              let check = try? result.decode(UpdateCheck.self) else { return }
+        update(\.updateAvailable, to: check.anyAvailable)
+        update(\.updateVerdictKnown, to: check.verdictKnown)
+    }
+
+    /// Six hours. A release lands a few times a month, so anything shorter is noise on somebody
+    /// else's servers.
+    private let updateCheckInterval: TimeInterval = 6 * 60 * 60
 
     func perform(
         _ arguments: [String],
@@ -290,6 +319,8 @@ final class RefreshCoordinator: ObservableObject {
 
     func updateRunOS() {
         guard !actionRunning, let runner else { return }
+        // Whatever the answer was, it is stale the moment this runs.
+        lastUpdateCheck = nil
         actionRunning = true
         store.operationMessage = "Updating RunOS…"
         store.errorMessage = nil
