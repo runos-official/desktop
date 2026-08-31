@@ -115,6 +115,61 @@ final class VPNRestartRequiredTests: XCTestCase {
     }
 
     /*
+     THE DIALOG HAS TO SAY WHAT IT WANTS AND WHY.
+
+     It read "osascript wants to make changes", with no reason given. `osascript` is named because
+     the app SPAWNED it: macOS attributes an authorisation request to the process that asked, and
+     that was /usr/bin/osascript rather than this app. A generic scripting tool asking for
+     administrator rights, with no explanation, is exactly the prompt somebody should refuse.
+
+     Two changes. The script now runs in-process, so the requester is this app and the dialog names
+     it. And `do shell script` takes a `with prompt` clause, whose text appears above the password
+     field, so the dialog states its business.
+    */
+    func testTheAdministratorPromptExplainsItself() {
+        let restart = VPNService.privilegedScript(
+            command: "'/bin/runos' vpn restart", prompt: VPNService.restartPrompt)
+
+        XCTAssertTrue(restart.contains("with prompt"), restart)
+        XCTAssertTrue(restart.contains("with administrator privileges"), restart)
+        // The reason, in the words a person reads on the dialog.
+        XCTAssertTrue(VPNService.restartPrompt.contains("VPN"), VPNService.restartPrompt)
+        XCTAssertTrue(VPNService.installPrompt.contains("VPN"), VPNService.installPrompt)
+        // Two different actions must not share one sentence: the dialog is the only place a person
+        // is told which of them they are approving.
+        XCTAssertNotEqual(VPNService.restartPrompt, VPNService.installPrompt)
+    }
+
+    /*
+     A prompt string is TEXT ON A DIALOG, so a quote in it must not end the AppleScript literal.
+
+     The command is already quoted at two layers. The prompt is a third string going into the same
+     literal, and it is the one most likely to be reworded later by somebody not thinking about
+     escaping.
+    */
+    func testAQuoteInThePromptCannotBreakOutOfTheScript() {
+        let script = VPNService.privilegedScript(
+            command: "'/bin/runos' vpn restart", prompt: "a \"quoted\" word and a \\ backslash")
+
+        // Every quote that belongs to the prompt is escaped, so the only bare quotes are the four
+        // delimiting the two literals.
+        let bareQuotes = script.enumerated().filter { index, ch in
+            ch == "\"" && (index == 0 || Array(script)[index - 1] != "\\")
+        }
+        XCTAssertEqual(bareQuotes.count, 4, "unbalanced quoting in: \(script)")
+    }
+
+    // -128 is osascript's code for "the person pressed Cancel". It is a refusal, not a fault, and
+    // it must not surface as an error banner. Kept working across the move to in-process execution,
+    // where the code arrives in an NSAppleScript error dictionary rather than on stderr.
+    func testCancellingThePromptIsNotReportedAsAFailure() {
+        XCTAssertTrue(VPNService.isUserCancellation(code: -128, message: ""))
+        XCTAssertTrue(VPNService.isUserCancellation(code: 1, message: "User canceled."))
+        XCTAssertFalse(VPNService.isUserCancellation(code: 1, message: "launchctl: no such process"))
+        XCTAssertFalse(VPNService.isUserCancellation(code: 0, message: ""))
+    }
+
+    /*
      The command run under the administrator prompt.
 
      `vpn restart` and NOT `vpn install`: reinstalling rewrites the service definition, which would

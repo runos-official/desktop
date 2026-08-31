@@ -46,6 +46,7 @@ enum VPNService {
     static func install(cliPath: String, userName: String = NSUserName()) async throws -> String {
         try await runPrivileged(
             installCommand(cliPath: cliPath, userName: userName),
+            prompt: installPrompt,
             cancelled: "Installing the VPN service needs an administrator password. Nothing was changed.",
             failed: "The VPN service could not be installed.")
     }
@@ -67,56 +68,94 @@ enum VPNService {
     static func restart(cliPath: String) async throws -> String {
         try await runPrivileged(
             restartCommand(cliPath: cliPath),
+            prompt: restartPrompt,
             cancelled: "Restarting the VPN service needs an administrator password. Nothing was changed.",
             failed: "The VPN service could not be restarted.")
     }
 
-    private static func runPrivileged(_ command: String, cancelled: String, failed: String) async throws -> String {
-        let script = "do shell script \"\(appleScriptQuoted(command))\" with administrator privileges"
+    /*
+     Ask for the administrator password, and run one command as root.
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
-        let out = Pipe()
-        let err = Pipe()
-        process.standardOutput = out
-        process.standardError = err
+     IN-PROCESS, VIA NSAppleScript. It used to spawn /usr/bin/osascript, and macOS attributes an
+     authorisation request to the process that ASKED, so the dialog read "osascript wants to make
+     changes" with no reason given. A generic scripting tool asking for administrator rights, with
+     no explanation, is exactly the prompt a person should refuse. Running the script here makes
+     this app the requester, so the dialog names it, and `with prompt` puts the reason above the
+     password field.
 
-        try process.run()
-        let stdout = out.fileHandleForReading.readDataToEndOfFile()
-        let stderr = err.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let message = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CLIExecutionError(
-                exitCode: process.terminationStatus,
-                // -128 is osascript's code for "the person pressed Cancel", which is not a fault.
-                message: message.contains("-128") || message.localizedCaseInsensitiveContains("User canceled")
-                    ? cancelled
-                    : (message.isEmpty ? failed : message)
-            )
+     ON THE MAIN THREAD, deliberately. NSAppleScript is documented as main-thread-only, and the
+     authorisation dialog is modal: the app is unresponsive while it is up, which is the ordinary
+     behaviour for a modal password box and lasts exactly as long as the person takes to answer.
+    */
+    private static func runPrivileged(
+        _ command: String, prompt: String, cancelled: String, failed: String
+    ) async throws -> String {
+        let source = privilegedScript(command: command, prompt: prompt)
+        return try await MainActor.run {
+            var failure: NSDictionary?
+            let output = NSAppleScript(source: source)?.executeAndReturnError(&failure)
+            if let failure {
+                let code = failure[NSAppleScript.errorNumber] as? Int ?? 1
+                let message = (failure[NSAppleScript.errorMessage] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                throw CLIExecutionError(
+                    exitCode: Int32(clamping: code),
+                    message: isUserCancellation(code: code, message: message)
+                        ? cancelled
+                        : (message.isEmpty ? failed : message))
+            }
+            return output?.stringValue ?? ""
         }
-        return String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /*
+     The AppleScript that raises the prompt.
+
+     THREE strings meet in one literal: the CLI path (already shell-quoted), the command, and the
+     prompt text. Every one of them goes through appleScriptQuoted, because a stray quote in any of
+     them ends the literal early and changes what runs as root. The prompt is the one most likely to
+     be reworded later by somebody not thinking about escaping.
+    */
+    static func privilegedScript(command: String, prompt: String) -> String {
+        "do shell script \"\(appleScriptQuoted(command))\""
+            + " with prompt \"\(appleScriptQuoted(prompt))\""
+            + " with administrator privileges"
+    }
+
+    /// What the dialog says it wants, above the password field. One sentence per action: the dialog
+    /// is the only place a person is told which of them they are approving.
+    static let installPrompt = "RunOS Desktop needs to install the RunOS VPN service."
+    static let restartPrompt = "RunOS Desktop needs to restart the RunOS VPN service so it runs the version you just installed."
+
+    /*
+     Whether the person pressed Cancel, which is a refusal and not a fault.
+
+     -128 is the code for it. The message is checked too, because the shell command's own failures
+     come back with their exit code rather than -128, and a cancellation reported as an error banner
+     would tell somebody something went wrong when they had simply said no.
+    */
+    static func isUserCancellation(code: Int, message: String) -> Bool {
+        code == -128 || message.contains("-128") || message.localizedCaseInsensitiveContains("User canceled")
     }
 
     /*
      The command run as root, and why it carries SUDO_USER.
 
      `runos vpn install` decides which group may open the control socket, so that the installing
-     person reaches it WITHOUT sudo afterwards. It reads SUDO_USER to find who that person is, and
-     falls back to the effective user's primary group when it is unset.
+     person reaches it WITHOUT sudo afterwards. It reads SUDO_USER to find who that person is.
 
-     osascript's `with administrator privileges` is not sudo. It runs the command as root directly,
-     so SUDO_USER is absent, the fallback picks root's primary group, and the socket lands as
-     `root:wheel`. An ordinary macOS account is in `staff` and `admin`, NOT `wheel`, so the daemon
-     installs, starts, and is then unreachable by the very person who installed it: `vpn status`
-     reports "the RunOS VPN service is not running" while the process is running fine.
-     Measured 2026-08-25.
+     `with administrator privileges` is not sudo. It runs the command as root directly, so SUDO_USER
+     is absent, and the CLI used to fall back to the effective user's primary group: root's, which
+     is `wheel` on macOS. An ordinary account is in `staff` and `admin`, NOT `wheel`, so the daemon
+     installed, started, and was then unreachable by the very person who installed it, with
+     `vpn status` reporting "the RunOS VPN service is not running" while the process ran fine.
+     Measured 2026-08-25, and reported again by two users on 2026-08-31, which is what finally
+     traced it: the CLI no longer derives that group from root, and its daemon repairs a socket
+     already in that state. Setting SUDO_USER here remains the right thing regardless, because it
+     names the person whose CLI has to reach the socket.
 
-     Setting SUDO_USER gives the CLI the same fact `sudo` would have given it. It is set INSIDE the
-     command rather than passed as an env var, because osascript does not forward the caller's
-     environment.
+     It is set INSIDE the command rather than passed as an env var, because AppleScript does not
+     forward this process's environment.
     */
     static func installCommand(cliPath: String, userName: String) -> String {
         "SUDO_USER=\(shellQuoted(userName)) \(shellQuoted(cliPath)) vpn install"
