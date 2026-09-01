@@ -98,7 +98,7 @@ fi
 
 step "Scan the public release payload"
 ADDED_LINES="$(git diff "$PAYLOAD_BASE..$INTEGRATION_BRANCH" -- . | grep '^+' | grep -v '^+++' || true)"
-SECRET_RE='(gh[pousr]_[A-Za-z0-9]{20,})|(github_pat_[A-Za-z0-9_]{20,})|(xox[baprs]-[A-Za-z0-9-]{10,})|(AKIA[0-9A-Z]{16})|(-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+SECRET_RE='(gh[pousr]_[A-Za-z0-9]{20,})|(github_pat_[A-Za-z0-9_]{20,})|(runos_pat_[A-Za-z0-9]{6,}\.[A-Za-z0-9]{20,})|(xox[baprs]-[A-Za-z0-9-]{10,})|(AKIA[0-9A-Z]{16})|(-----BEGIN [A-Z ]*PRIVATE KEY-----)'
 if printf '%s\n' "$ADDED_LINES" | grep -nE "$SECRET_RE"; then
   fail "secret-shaped content exists in the release payload"
 fi
