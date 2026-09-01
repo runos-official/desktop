@@ -4,7 +4,7 @@ SCHEME := RunOSDesktop
 CONFIGURATION ?= Debug
 BUILD_ROOT := $(CURDIR)/build
 
-.PHONY: build test run install verify release clean hooks leakcheck leakcheck-staged leakcheck-update leakcheck-test help
+.PHONY: build test run install verify release clean hooks leakcheck leakcheck-staged leakcheck-update leakcheck-test unscannable help
 
 build:
 	@DEVELOPER_DIR=$(DEVELOPER_DIR) xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIGURATION) -derivedDataPath $(BUILD_ROOT)/DerivedData build
@@ -57,6 +57,14 @@ leakcheck-update:
 leakcheck-test:
 	@python3 scripts/leakcheck_test.py
 
+# Fail on a tracked file leakcheck cannot READ. leakcheck reads UTF-8 text; a
+# file holding a NUL byte or other bytes is read best effort at most, and some
+# encodings escape it entirely (measured on checker 1.2.0: a token in a UTF-32
+# file, and a token broken up by NUL bytes, both pass with exit 0). This target
+# turns such a file into a decision somebody records, not a silent gap.
+unscannable:
+	@python3 scripts/unscannable_check.py
+
 help:
 	@echo "RunOS Desktop"
 	@echo ""
@@ -72,6 +80,7 @@ help:
 	@echo "  make leakcheck-staged Scan only the staged diff"
 	@echo "  make leakcheck-update Ratchet the baseline down after removing an identifier"
 	@echo "  make leakcheck-test   Test the leak checker itself"
+	@echo "  make unscannable      Fail on a tracked file leakcheck cannot read"
 	@echo ""
 	@echo "  make release VERSION=vX.Y.Z          Cut a release"
 	@echo "  make release VERSION=vX.Y.Z CHECK=1  Run the release gates only"
