@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.4
+
+- **Switch Account** is back in the menu, for a login that belongs to more than one account. One sign-in can now be a member of several accounts, and the CLI switches between them on the sign-in it already has, so the menu lists them and switches without a browser in the usual case. The submenu names accounts the way the console does, ticks the active one, and stays away when there is only one account. A switch still drops a running tunnel, as the CLI says; Connect brings the new account up when you choose. A CLI older than account sharing has no list to show, and the rest of the menu is unaffected.
+
 ## v0.4.3
 
 - The administrator prompt now says who is asking and why. It read "osascript wants to make changes" with no reason given, because the app was asking through a separate scripting tool and macOS names whoever asked. It now names RunOS Desktop and states which action it needs the password for, installing the VPN service or restarting it after an update.

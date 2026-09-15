@@ -46,6 +46,10 @@ final class StateStore: ObservableObject {
     */
     @Published var vpnServiceMissing = false
 
+    /// The accounts the login belongs to, read while signed in. Empty when signed out or on a CLI
+    /// without the command.
+    @Published var accounts: [UserAccountEntry] = []
+
     /*
      WHETHER THERE IS AN IDENTITY, and it comes from `runos status`. Only from `runos status`.
 
@@ -228,6 +232,9 @@ final class StateStore: ObservableObject {
     }
 
     var activeAccountId: String? { cliStatus?.accountId }
+    /// One account is nothing to switch between, so the submenu only appears for two or more.
+    var canSwitchAccount: Bool { signedIn && accounts.count > 1 }
+    func isActiveAccount(_ account: UserAccountEntry) -> Bool { account.aid == activeAccountId }
     var isBusy: Bool { operationMessage != nil }
     /*
      A FLAG, not a string comparison against a sentence.

@@ -197,11 +197,23 @@ final class RefreshCoordinator: ObservableObject {
             }
             let status = try statusResult.decode(CLIStatus.self)
             let vpn = try? vpnResult?.decode(VPNStatus.self)
+            /*
+             `try?`, on purpose. A CLI older than account sharing has no `user accounts` and exits
+             with "unexpected command"; that is not a failure of this refresh, it is a menu item
+             the machine does not get yet. Signed out, there is nothing to list.
+            */
+            var accounts: [UserAccountEntry] = []
+            if status.authenticated,
+               let listed = try? await runner.run(DesktopCommands.listAccounts()),
+               let decoded = try? listed.decode(UserAccountsResult.self) {
+                accounts = decoded.accounts
+            }
             // A newer refresh started while this one was waiting on the CLI, so this answer is
             // already out of date. Publishing it would put the older facts on screen.
             guard generation == refreshGeneration else { return }
             update(\.cliStatus, to: status)
             update(\.vpnStatus, to: vpn)
+            update(\.accounts, to: accounts)
             if let vpn, vpn.running {
                 store.traffic.record(total: vpn.totalTrafficBytes)
             }
@@ -541,6 +553,20 @@ final class RefreshCoordinator: ObservableObject {
      (`beginSignIn(purpose: .confirm)`), because conductor can ask for a browser check first and a
      spinner cannot show a device code.
     */
+    /*
+     Cancellable, because the CLI opens a browser when the stored sign-in cannot be used for the
+     account. A member account switches on the sign-in it has and finishes without one.
+    */
+    func switchAccount(_ account: UserAccountEntry) {
+        perform(
+            DesktopCommands.switchAccount(account.aid),
+            message: "Switching to \(account.label)…",
+            cancellable: true,
+            cancelLabel: "Cancel Switch",
+            cancellingMessage: "Cancelling switch…"
+        )
+    }
+
     func disconnectVPN() {
         perform(DesktopCommands.setVPN(enabled: false), message: "Disconnecting VPN…")
     }

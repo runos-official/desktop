@@ -271,6 +271,33 @@ struct MenuContentView: View {
              The old Sign Out was inside the VPN submenu and ran `vpn down`, which ended the session
              and left the machine signed in.
             */
+            /*
+             SWITCH ACCOUNT, only when there is another account to switch to.
+
+             The old account submenu was dropped because picking an account changed nothing a person
+             could see. With account sharing that is no longer true: one login belongs to several
+             accounts, the console switches between them, and the CLI switches without a browser.
+             The tunnel still drops on a switch, as the CLI says, and Connect brings the new account
+             up when the person wants it.
+            */
+            if store.canSwitchAccount {
+                Divider()
+                Menu("Switch Account") {
+                    ForEach(store.accounts) { account in
+                        let active = store.isActiveAccount(account)
+                        Button {
+                            coordinator.switchAccount(account)
+                        } label: {
+                            if active {
+                                Label(account.label, systemImage: "checkmark")
+                            } else {
+                                Text(account.label)
+                            }
+                        }
+                        .disabled(active)
+                    }
+                }
+            }
             if store.signedIn {
                 Divider()
                 Button("Sign Out") { coordinator.signOut() }

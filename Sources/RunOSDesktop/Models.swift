@@ -124,6 +124,36 @@ struct VPNCluster: Decodable, Equatable, Identifiable, Sendable {
     var isDeadConnection: Bool { connected && !reachable }
 }
 
+/*
+ The accounts a login belongs to, from `runos user accounts --json`.
+
+ One login can be a member of several accounts (account sharing), and the CLI switches between
+ them with the sign-in it already has. This is read on every refresh while signed in, so the menu
+ offers the same list the console does.
+*/
+struct UserAccountsResult: Decodable, Equatable, Sendable {
+    let accounts: [UserAccountEntry]
+}
+
+struct UserAccountEntry: Decodable, Equatable, Identifiable, Sendable {
+    let aid: String
+    let name: String?
+    let companyName: String?
+    let accountRole: String
+    let isDefault: Bool
+
+    var id: String { aid }
+
+    /// Company name, then account name, then the bare id: the console's rule, so both name an
+    /// account the same way.
+    var label: String {
+        let company = (companyName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !company.isEmpty { return company }
+        let accountName = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return accountName.isEmpty ? aid : accountName
+    }
+}
+
 struct UpdateResult: Decodable, Sendable {
     struct Component: Decodable, Sendable {
         let updated: Bool

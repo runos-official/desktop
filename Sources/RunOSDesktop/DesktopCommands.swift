@@ -60,6 +60,22 @@ enum DesktopCommands {
         ["vpn", "up", "--non-interactive", "--json"]
     }
 
+    /// Every account the login belongs to. Absent on a CLI older than account sharing.
+    static func listAccounts() -> [String] {
+        ["user", "accounts", "--json"]
+    }
+
+    /*
+     Make another of the login's accounts the active one.
+
+     The CLI uses the sign-in it already has when the login is a member, so this usually needs no
+     browser. It still drops a running tunnel, because the tunnel never outlives the identity that
+     opened it (FPL26 D3); the person connects the new account when they choose.
+    */
+    static func switchAccount(_ aid: String) -> [String] {
+        ["account", "switch", aid, "--json"]
+    }
+
     static func setCluster(_ cid: String, connected: Bool) -> [String] {
         ["vpn", connected ? "disconnect" : "connect", cid, "--json"]
     }
