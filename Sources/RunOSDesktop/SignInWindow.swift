@@ -109,6 +109,7 @@ final class SignInRunner: ObservableObject {
     @Published private(set) var browserOpened = false
     @Published private(set) var phase: SignInPhase = .starting
     @Published private(set) var copied = false
+    @Published private(set) var copiedCode = false
 
     private var task: Task<Void, Never>?
     private let runner: CLIRunner?
@@ -206,6 +207,16 @@ final class SignInRunner: ObservableObject {
         endOnce(nil) // backing out is not a fault to report
     }
 
+    /// Put the device code on the pasteboard. The Console no longer fills it in, so the person types
+    /// or pastes it on the approval page. The pasteboard is a parameter so a test never touches the
+    /// person's real clipboard.
+    func copyDeviceCode(to pasteboard: NSPasteboard = .general) {
+        guard let deviceID else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(deviceID, forType: .string)
+        copiedCode = true
+    }
+
     func copyURL() {
         guard let url else { return }
         NSPasteboard.general.clearContents()
@@ -230,9 +241,11 @@ final class SignInRunner: ObservableObject {
         onEnded = nil
     }
 
-    fileprivate func apply(_ event: SignInEvent) {
+    func apply(_ event: SignInEvent) {
         switch event {
         case .deviceCode(let id, let link):
+            // A new code is a new thing to copy, so "Copied" must stop claiming the old one.
+            if deviceID != id { copiedCode = false }
             deviceID = id
             url = link
             phase = .waiting
@@ -409,13 +422,16 @@ private struct SignInView: View {
             Text("Device code")
                 .font(.headline)
             if let deviceID = model.deviceID {
-                Text(deviceID)
-                    .font(.system(.title2, design: .monospaced))
-                    .textSelection(.enabled)
-                // The instruction is the point. A code nobody is told to compare is decoration, and
-                // comparing it is the only thing standing between this flow and an authorised page
-                // the CLI never opened.
-                Text("Check this matches the code shown in your browser before you approve it.")
+                HStack(spacing: 12) {
+                    Text(deviceID)
+                        .font(.system(.title2, design: .monospaced))
+                        .textSelection(.enabled)
+                    Button(model.copiedCode ? "Copied" : "Copy Code") { model.copyDeviceCode() }
+                }
+                // The Console asks for this code and no longer fills it in. Saying so is the point:
+                // a code nobody is told to enter is decoration, and entering it on the page the CLI
+                // opened is what ties the approval to this device.
+                Text("Enter this code on the page that opens in your browser.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
@@ -429,14 +445,14 @@ private struct SignInView: View {
      Opening the browser is a DECISION, not something that happens to you.
 
      The CLI is run with --no-browser so nothing opens until this button is pressed. That ordering
-     is the whole value of the device code: read it here, then go and check it matches there. A
+     is the whole value of the device code: take it from here, then enter it there. A
      browser that appears on its own two seconds in puts the code behind a window before anyone has
-     read it, and the comparison silently stops happening.
+     copied it, and the person has to come back to find it.
     */
     @ViewBuilder
     private var urlSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(model.browserOpened ? "Opened in your browser" : "When you have checked the code")
+            Text(model.browserOpened ? "Opened in your browser" : "When you have the code")
                 .font(.headline)
             if let url = model.url {
                 HStack {
@@ -465,7 +481,7 @@ private struct SignInView: View {
         // to approve it in the browser" would be pointing at a window that does not exist.
         return model.browserOpened
             ? "Waiting for you to approve it in the browser…"
-            : "Check the code, then open the browser."
+            : "Copy the code, then open the browser."
     }
 
     @ViewBuilder
