@@ -139,7 +139,7 @@ enum VPNService {
     /// What the dialog says it wants, above the password field. One sentence per action: the dialog
     /// is the only place a person is told which of them they are approving.
     static let installPrompt = "RunOS Desktop needs to install the RunOS VPN service."
-    static let restartPrompt = "RunOS Desktop needs to restart the RunOS VPN service so it runs the version you just installed."
+    static let restartPrompt = "RunOS Desktop needs to restart the RunOS VPN service so it runs the version you just installed. The VPN disconnects for a few seconds, then reconnects by itself."
 
     /*
      Whether the person pressed Cancel, which is a refusal and not a fault.

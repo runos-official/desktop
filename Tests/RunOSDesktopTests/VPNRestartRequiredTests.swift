@@ -141,6 +141,18 @@ final class VPNRestartRequiredTests: XCTestCase {
     }
 
     /*
+     The restart prompt says what the restart does to the connection.
+
+     A person who updated with the VPN connected lost the connection for a few seconds and could not
+     tell an expected gap from a fault, so they turned the VPN off. The dialog is the one place
+     they are told, before they enter a password, that the VPN comes back by itself.
+    */
+    func testTheRestartPromptSaysTheVPNReconnectsByItself() {
+        XCTAssertTrue(VPNService.restartPrompt.contains("few seconds"), VPNService.restartPrompt)
+        XCTAssertTrue(VPNService.restartPrompt.contains("reconnects by itself"), VPNService.restartPrompt)
+    }
+
+    /*
      A prompt string is TEXT ON A DIALOG, so a quote in it must not end the AppleScript literal.
 
      The command is already quoted at two layers. The prompt is a third string going into the same
