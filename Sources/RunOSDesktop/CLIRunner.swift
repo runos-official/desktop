@@ -27,15 +27,20 @@ struct CLIStreamResult: Sendable {
      The one line worth showing a person.
 
      The CLI's convention is a final sentence carrying the remedy, sometimes after progress prose on
-     the same stream. The LAST non-empty line is that sentence. Empty when the CLI said nothing,
+     the same stream. The LAST non-empty line before the diagnose hint is that sentence. Empty when the CLI said nothing,
      which is the only case a caller has to invent wording for.
     */
     var failureSentence: String? {
-        errorOutput
+        let lines = errorOutput
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .last(where: { !$0.isEmpty })
+            .filter { !$0.isEmpty }
+        // The CLI ends a failed `vpn up` with a generic pointer to `runos vpn diagnose`. It is
+        // useful on its own, but it is not the reason, so the sentence before it wins.
+        return lines.last(where: { !$0.hasPrefix(Self.diagnoseHintPrefix) }) ?? lines.last
     }
+
+    private static let diagnoseHintPrefix = "Stuck? 'runos vpn diagnose'"
 }
 
 /// Collects stderr off the pipe's delivery thread. A plain `var` captured by the handler would be a

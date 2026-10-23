@@ -317,6 +317,30 @@ final class SignInParityTests: XCTestCase {
                        "the LAST non-empty line is the one carrying the remedy")
     }
 
+    /*
+     The CLI ends a failed `vpn up` with a generic hint about `runos vpn diagnose`, after the real
+     sentence. Taking the LAST line then showed only the hint, and a person who approved the browser
+     check as a different account was told nothing about the account change (2026-10-23).
+    */
+    func testTheDiagnoseHintDoesNotHideTheRealSentence() {
+        let hint = "Stuck? 'runos vpn diagnose' prints a report of which step failed and why. It is safe to paste: it contains no tokens or keys."
+        let result = CLIStreamResult(
+            exitCode: 1,
+            errorOutput: "you signed in to account b, not a, so the VPN was disconnected. Run 'runos vpn up' to connect b\n\n\(hint)\n"
+        )
+
+        XCTAssertEqual(result.failureSentence,
+                       "you signed in to account b, not a, so the VPN was disconnected. Run 'runos vpn up' to connect b")
+    }
+
+    /// A failure that has only the hint still shows it: better than the generic wording.
+    func testTheHintAloneIsStillBetterThanNothing() {
+        let hint = "Stuck? 'runos vpn diagnose' prints a report of which step failed and why. It is safe to paste: it contains no tokens or keys."
+        let result = CLIStreamResult(exitCode: 1, errorOutput: hint + "\n")
+
+        XCTAssertEqual(result.failureSentence, hint)
+    }
+
     /// Trailing blank lines and whitespace must not become the message.
     func testTrailingBlankLinesAreNotTheMessage() {
         let result = CLIStreamResult(exitCode: 1, errorOutput: "the real sentence\n\n   \n\n")
