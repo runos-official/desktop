@@ -65,10 +65,10 @@ enum VPNService {
 
      Brief: the tunnel drops while the service reloads and re-converges on its own within seconds.
     */
-    static func restart(cliPath: String) async throws -> String {
+    static func restart(cliPath: String, prompt: String = VPNService.restartPrompt) async throws -> String {
         try await runPrivileged(
             restartCommand(cliPath: cliPath),
-            prompt: restartPrompt,
+            prompt: prompt,
             cancelled: "Restarting the VPN service needs an administrator password. Nothing was changed.",
             failed: "The VPN service could not be restarted.")
     }
@@ -140,6 +140,23 @@ enum VPNService {
     /// is the only place a person is told which of them they are approving.
     static let installPrompt = "RunOS Desktop needs to install the RunOS VPN service."
     static let restartPrompt = "RunOS Desktop needs to restart the RunOS VPN service so it runs the version you just installed."
+
+    /*
+     The restart prompt, with a sentence about what the restart does to the connection that is true
+     of THIS machine right now.
+
+     "Reconnects by itself" is only true when a tunnel is up and its session is still valid: the
+     restarted service resumes the stored session. With no tunnel there is nothing to reconnect, and
+     with a lapsed session the service comes back without a tunnel until the person signs in.
+     Promising a reconnect in those states would be a claim the product does not keep.
+    */
+    static func restartPromptText(tunnelUp: Bool, sessionValid: Bool) -> String {
+        guard tunnelUp else { return restartPrompt }
+        if sessionValid {
+            return restartPrompt + " The VPN disconnects for a few seconds, then reconnects by itself."
+        }
+        return restartPrompt + " Your VPN session has ended, so the VPN stays off until you sign in again."
+    }
 
     /*
      Whether the person pressed Cancel, which is a refusal and not a fault.
