@@ -153,9 +153,26 @@ struct MenuContentView: View {
         if store.sessionEndingSoon(now: Date()),
            let expiry = MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) {
             Text(expiry)
+            renewSessionButton
         }
         if let error = store.errorMessage {
             Text(error)
+        }
+    }
+
+    /*
+     START A FRESH 24 HOURS, whenever the person wants one.
+
+     The session ends 24 hours after it was minted and nothing extends it, so someone with an
+     important afternoon ahead and two hours left can only wait for the end and sign in again. This
+     asks for a new browser check now. It is not a weaker path: conductor mints the new session only
+     after the same recent sign-in the first one needed. The tunnel drops for a moment while the
+     service swaps the session in, and comes straight back.
+    */
+    @ViewBuilder
+    private var renewSessionButton: some View {
+        Button("Renew Session") {
+            coordinator.beginSignIn(purpose: .renew)
         }
     }
 
@@ -185,6 +202,7 @@ struct MenuContentView: View {
                 if let expiry = MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) {
                     Text(expiry)
                 }
+                renewSessionButton
                 /*
                  DISCONNECT, not "Sign Out". This ends the tunnel and leaves the person signed in,
                  which is what `vpn down` has always actually done; calling it Sign Out was the app

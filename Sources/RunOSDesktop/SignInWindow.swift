@@ -40,11 +40,21 @@ enum SignInPhase: Equatable {
 enum SignInPurpose: Equatable {
     case signIn
     case confirm
+    /*
+     Starts a fresh 24 hour VPN session while the tunnel is already up.
+
+     It runs the same command as `confirm`: `vpn up` mints a new session and asks for a browser
+     check first when the last sign-in is older than five minutes. The difference is the words. A
+     person who is connected and clicks Renew is not connecting, and a window that said so would
+     read as the app having lost the connection.
+    */
+    case renew
 
     var windowTitle: String {
         switch self {
         case .signIn: return "Sign in to RunOS"
         case .confirm: return "Confirm it's you"
+        case .renew: return "Renew your VPN session"
         }
     }
 
@@ -55,13 +65,15 @@ enum SignInPurpose: Equatable {
             return "Approve this device in your browser to sign in."
         case .confirm:
             return "You are still signed in. Connecting the VPN needs a recent browser check."
+        case .renew:
+            return "You are still signed in. A new browser check starts a fresh 24 hours."
         }
     }
 
     var arguments: [String] {
         switch self {
         case .signIn: return DesktopCommands.signIn()
-        case .confirm: return DesktopCommands.setVPN(enabled: true)
+        case .confirm, .renew: return DesktopCommands.setVPN(enabled: true)
         }
     }
 
@@ -80,7 +92,7 @@ enum SignInPurpose: Equatable {
     var presentsWindowImmediately: Bool {
         switch self {
         case .signIn: return true
-        case .confirm: return false
+        case .confirm, .renew: return false
         }
     }
 
@@ -90,6 +102,7 @@ enum SignInPurpose: Equatable {
         switch self {
         case .signIn: return "Signing in…"
         case .confirm: return "Connecting VPN…"
+        case .renew: return "Renewing VPN session…"
         }
     }
 
@@ -98,6 +111,16 @@ enum SignInPurpose: Equatable {
         switch self {
         case .signIn: return "Sign in did not complete."
         case .confirm: return "Could not connect the VPN."
+        case .renew: return "Could not renew the VPN session."
+        }
+    }
+
+    /// What the status line says once the browser has approved and the CLI is finishing the job.
+    var approvedMessage: String {
+        switch self {
+        case .signIn: return "Approved. Finishing sign in…"
+        case .confirm: return "Approved. Connecting…"
+        case .renew: return "Approved. Renewing…"
         }
     }
 }
@@ -493,7 +516,7 @@ private struct SignInView: View {
                 Text(statusLine)
             case .authorized:
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text(model.purpose == .confirm ? "Approved. Connecting…" : "Approved. Finishing sign in…")
+                Text(model.purpose.approvedMessage)
             case .failed(let message):
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
                 Text(message).foregroundStyle(.secondary)
