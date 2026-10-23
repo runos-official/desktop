@@ -2,6 +2,8 @@
 
 ## v0.4.6
 
+- The menu says what is happening between the sign-in window closing and the VPN being usable. It used to say nothing: Sign In stayed clickable, then everything greyed out, and Connect looked clickable after a click. Now it shows "Finishing sign in…", then "Connecting VPN…" when connecting automatically, and Sign In, Connect and Renew Session show their own busy state and cannot be clicked twice.
+- A renewal that needs no browser check, because you signed in within the last five minutes, now says "VPN session renewed" and when it ends. It used to finish silently.
 - **Renew Session** in the VPN menu starts a fresh 24 hours without waiting for the session to end. It sits in the VPN submenu while you are connected, and at the top of the menu in the last hour before the session ends. It asks for the same browser check as connecting, shows the device code in a window with a Copy Code button, and the tunnel drops for a moment while the new session is swapped in. If you signed in within the last five minutes, no browser check is needed and it renews at once.
 
 ## v0.4.5
