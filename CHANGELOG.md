@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.5
+
+- **Copy Code** in the sign-in window. The Console no longer fills the device code in for you, so you enter it on the approval page. The window now shows a Copy Code button next to the code and tells you to enter it in the browser, instead of asking you to compare two codes.
+- The restart prompt says only what is true for your machine. With a tunnel up and a valid session it says the VPN disconnects for a few seconds and then reconnects by itself. With the session ended it says the VPN stays off until you sign in again. With no tunnel it says nothing about a reconnect.
+
 ## v0.4.4
 
 - **Switch Account** is back in the menu, for a login that belongs to more than one account. One sign-in can now be a member of several accounts, and the CLI switches between them on the sign-in it already has, so the menu lists them and switches without a browser in the usual case. The submenu names accounts the way the console does, ticks the active one, and stays away when there is only one account. A switch still drops a running tunnel, as the CLI says; Connect brings the new account up when you choose. A CLI older than account sharing has no list to show, and the rest of the menu is unaffected.
