@@ -37,4 +37,8 @@ final class SignInRenewTests: XCTestCase {
         XCTAssertEqual(SignInPurpose.confirm.approvedMessage, "Approved. Connecting…")
         XCTAssertEqual(SignInPurpose.signIn.approvedMessage, "Approved. Finishing sign in…")
     }
+
+    func testRenewWarnsThatCancellingMeansSigningInAgain() {
+        XCTAssertTrue(SignInPurpose.renew.explanation.contains("you will need to sign in again"))
+    }
 }
