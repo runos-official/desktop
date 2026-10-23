@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.6
+
+- **Renew Session** in the VPN menu starts a fresh 24 hours without waiting for the session to end. It sits in the VPN submenu while you are connected, and at the top of the menu in the last hour before the session ends. It asks for the same browser check as connecting, shows the device code in a window with a Copy Code button, and the tunnel drops for a moment while the new session is swapped in. If you signed in within the last five minutes, no browser check is needed and it renews at once.
+
 ## v0.4.5
 
 - **Copy Code** in the sign-in window. The Console no longer fills the device code in for you, so you enter it on the approval page. The window now shows a Copy Code button next to the code and tells you to enter it in the browser, instead of asking you to compare two codes.
