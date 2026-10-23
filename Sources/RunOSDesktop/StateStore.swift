@@ -7,6 +7,9 @@ final class StateStore: ObservableObject {
     @Published var vpnStatus: VPNStatus?
     @Published var traffic = TrafficSampler()
     @Published var errorMessage: String?
+    /// Something that finished and is worth saying once, such as a renewed VPN session. Not a
+    /// fault, so it is kept apart from `errorMessage`, which turns the menu bar icon to attention.
+    @Published var noticeMessage: String?
     @Published var operationMessage: String?
     /// Whether the running operation is an update, so the menu title does not have to recognise the
     /// progress sentence. Set beside `operationMessage` in `RefreshCoordinator.updateRunOS`.

@@ -66,7 +66,7 @@ enum SignInPurpose: Equatable {
         case .confirm:
             return "You are still signed in. Connecting the VPN needs a recent browser check."
         case .renew:
-            return "You are still signed in. A new browser check starts a fresh 24 hours."
+            return "A new browser check starts a fresh 24 hours. If you cancel it, you will need to sign in again."
         }
     }
 
@@ -112,6 +112,21 @@ enum SignInPurpose: Equatable {
         case .signIn: return "Sign in did not complete."
         case .confirm: return "Could not connect the VPN."
         case .renew: return "Could not renew the VPN session."
+        }
+    }
+
+    /*
+     What the MENU says from the moment the window closes until the app has read its new state
+     (and, after a sign-in with automatic connect on, handed over to "Connecting VPN…").
+
+     Without it the menu said nothing for those seconds: Sign In stayed clickable while the app
+     re-read its state, then everything greyed out for the connect, and a person who could not tell
+     it was working clicked again.
+    */
+    var finishingMessage: String {
+        switch self {
+        case .signIn: return "Finishing sign in…"
+        case .confirm, .renew: return busyMessage
         }
     }
 

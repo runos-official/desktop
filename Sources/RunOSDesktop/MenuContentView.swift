@@ -52,6 +52,16 @@ enum MenuPresentation {
         return "Session expires in under a minute (\(clock))"
     }
 
+    /// What to say after a renewal, from the session as the CLI now reports it. Nil when there is no
+    /// valid session to name the end of, so the notice never claims a renewal it cannot show.
+    static func sessionRenewedNotice(_ session: VPNSession?, now: Date, timeZone: TimeZone = .current) -> String? {
+        let prefix = "Session expires "
+        guard let expiry = sessionExpiry(session, now: now, timeZone: timeZone), expiry.hasPrefix(prefix) else {
+            return nil
+        }
+        return "VPN session renewed. It ends " + expiry.dropFirst(prefix.count) + "."
+    }
+
     static func clusterLabel(_ cluster: VPNCluster) -> String {
         let base = clusterLabel(name: cluster.name, cid: cluster.cid)
         guard cluster.isDeadConnection else { return base }
@@ -117,6 +127,9 @@ struct MenuContentView: View {
         if let operation = store.operationMessage {
             Text(operation)
         }
+        if let notice = store.noticeMessage {
+            Text(notice)
+        }
         /*
          THE SERVICE IS MISSING, which is a thing to install and not a thing to explain.
 
@@ -143,9 +156,10 @@ struct MenuContentView: View {
              does anything else and therefore exited immediately on the one machine that needed this
              button most: a signed-out one (reported 2026-08-28).
             */
-            Button("Sign In") {
+            Button(store.operationMessage ?? "Sign In") {
                 coordinator.beginSignIn(purpose: .signIn)
             }
+            .disabled(store.isBusy)
         }
         // Inside the last hour the expiry stops being reference and becomes something to do. It
         // moves out of the VPN submenu to here, where it cannot be missed, because a sign-in takes
@@ -171,9 +185,10 @@ struct MenuContentView: View {
     */
     @ViewBuilder
     private var renewSessionButton: some View {
-        Button("Renew Session") {
+        Button(store.operationMessage ?? "Renew Session") {
             coordinator.beginSignIn(purpose: .renew)
         }
+        .disabled(store.isBusy)
     }
 
     @ViewBuilder
@@ -218,9 +233,12 @@ struct MenuContentView: View {
                  from a sign-in in the last five minutes. That is a CONFIRMATION, and the window says
                  so. The person stays signed in throughout and the account cannot change.
                 */
-                Button("Connect") {
+                Button(store.operationMessage ?? "Connect") {
                     coordinator.beginSignIn(purpose: .confirm)
                 }
+                // The item itself says what is happening and cannot be clicked again, instead of
+                // relying on the group around it to look different.
+                .disabled(store.isBusy)
             }
         }
     }

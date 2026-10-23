@@ -17,6 +17,7 @@ final class RefreshCoordinator: ObservableObject {
     private var runner: CLIRunner?
     private var pollTask: Task<Void, Never>?
     private var actionTask: Task<Void, Never>?
+    private var noticeTask: Task<Void, Never>?
 
     /*
      The sign-in state the previous refresh saw, so a sign-in COMPLETING can be told from simply
@@ -408,6 +409,7 @@ final class RefreshCoordinator: ObservableObject {
     */
     func beginSignIn(purpose: SignInPurpose = .signIn) {
         guard !actionRunning else { return }
+        say(nil) // a new action starts: the last notice is old news
         /*
          CLAIMED, so the guard above is worth something.
 
@@ -433,7 +435,7 @@ final class RefreshCoordinator: ObservableObject {
             runner: runner,
             purpose: purpose,
             onFinished: { [weak self] in
-                Task { await self?.refresh() }
+                _ = self?.signInFinished(purpose: purpose)
             },
             /*
              A run that never opened a window still has to report. `.confirm` defers its window
@@ -447,6 +449,48 @@ final class RefreshCoordinator: ObservableObject {
                 if let failure { self.store.errorMessage = failure }
             }
         )
+    }
+
+    /*
+     BRIDGE THE SECONDS BETWEEN THE WINDOW CLOSING AND THE MENU BEING TRUE AGAIN.
+
+     The window closes the moment the CLI exits, and the menu still describes the old state until the
+     refresh below has read the new one. Then, with automatic connect on, a second stretch follows
+     while the tunnel comes up. Both used to be silent: Sign In stayed clickable, then greyed out,
+     then something else did, and nothing said that work was going on.
+
+     The message is set SYNCHRONOUSLY, in the same turn of the main actor as the window's own
+     teardown, so no menu draw can fall in between. If the refresh starts the automatic connect, that
+     run owns the message from then on and this leaves it alone; otherwise this clears it.
+    */
+    @discardableResult
+    func signInFinished(purpose: SignInPurpose) -> Task<Void, Never> {
+        store.operationMessage = purpose.finishingMessage
+        return Task { [weak self] in
+            guard let self else { return }
+            await self.refresh(allowDuringAction: true)
+            if !self.actionRunning { self.store.operationMessage = nil }
+            /*
+             A RENEWAL CAN FINISH WITH NO WINDOW AT ALL. A sign-in from the last five minutes needs
+             no browser check, so the CLI renews at once and nothing on screen changes except an
+             expiry line inside a submenu. Reported 2026-10-23: "renew session doesn't appear to do
+             anything". Say that it did, and when the new session ends.
+            */
+            if purpose == .renew {
+                self.say(MenuPresentation.sessionRenewedNotice(self.store.vpnStatus?.session, now: self.now()))
+            }
+        }
+    }
+
+    /// Show a notice for a minute, then take it down. A newer notice replaces it and its own timer.
+    private func say(_ notice: String?) {
+        noticeTask?.cancel()
+        store.noticeMessage = notice
+        guard notice != nil else { return }
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+            if !Task.isCancelled { self?.store.noticeMessage = nil }
+        }
     }
 
     /*
