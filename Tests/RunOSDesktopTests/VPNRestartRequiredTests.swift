@@ -141,15 +141,26 @@ final class VPNRestartRequiredTests: XCTestCase {
     }
 
     /*
-     The restart prompt says what the restart does to the connection.
+     The restart prompt says what the restart does to the connection, and only what is true.
 
      A person who updated with the VPN connected lost the connection for a few seconds and could not
      tell an expected gap from a fault, so they turned the VPN off. The dialog is the one place
-     they are told, before they enter a password, that the VPN comes back by itself.
+     they are told, before they enter a password. The promise to reconnect holds only while a
+     tunnel is up and its session is valid; otherwise the dialog makes no such claim.
     */
-    func testTheRestartPromptSaysTheVPNReconnectsByItself() {
-        XCTAssertTrue(VPNService.restartPrompt.contains("few seconds"), VPNService.restartPrompt)
-        XCTAssertTrue(VPNService.restartPrompt.contains("reconnects by itself"), VPNService.restartPrompt)
+    func testTheRestartPromptPromisesAReconnectOnlyWhenOneWillHappen() {
+        let live = VPNService.restartPromptText(tunnelUp: true, sessionValid: true)
+        XCTAssertTrue(live.hasPrefix(VPNService.restartPrompt), live)
+        XCTAssertTrue(live.contains("few seconds"), live)
+        XCTAssertTrue(live.contains("reconnects by itself"), live)
+
+        let lapsed = VPNService.restartPromptText(tunnelUp: true, sessionValid: false)
+        XCTAssertFalse(lapsed.contains("reconnects by itself"), lapsed)
+        XCTAssertTrue(lapsed.contains("sign in again"), lapsed)
+
+        let down = VPNService.restartPromptText(tunnelUp: false, sessionValid: true)
+        XCTAssertEqual(down, VPNService.restartPrompt)
+        XCTAssertEqual(VPNService.restartPromptText(tunnelUp: false, sessionValid: false), VPNService.restartPrompt)
     }
 
     /*

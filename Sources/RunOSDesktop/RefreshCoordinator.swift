@@ -505,7 +505,12 @@ final class RefreshCoordinator: ObservableObject {
             // Held until after the refresh, which writes `errorMessage` itself. See `perform`.
             var failure: String?
             do {
-                _ = try await VPNService.restart(cliPath: CLIPathResolver.resolve().path)
+                _ = try await VPNService.restart(
+                    cliPath: CLIPathResolver.resolve().path,
+                    prompt: VPNService.restartPromptText(
+                        tunnelUp: store.vpnStatus?.running == true,
+                        sessionValid: store.vpnStatus?.session.present == true
+                            && store.vpnStatus?.session.loginRequired != true))
             } catch {
                 failure = error.localizedDescription
             }
