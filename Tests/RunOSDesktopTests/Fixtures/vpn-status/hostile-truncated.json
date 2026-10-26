@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "running": true,
+  "accountId": "acct-example",
+  "session": {
+    "present": true,
+    "expiresAt": "2026-10-27T09:30:00Z",
+    "loginRequired": false
+  },
+  "clusters": [
+    {
+      "cid": "c-example1",
+      "name": "Example Cluster",
+      "connected": true,
+      "reachable": true,
+      "reason": null,
+      "peerUp": true,
+      "peeredWith": [],
+    

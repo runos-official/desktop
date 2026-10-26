@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "authenticated": false,
+  "accountId": "acct-example",
+  "authError": "Could not reach the sign-in service. Check your connection; your sign-in is unaffected.",
+  "authErrorKind": "network"
+}

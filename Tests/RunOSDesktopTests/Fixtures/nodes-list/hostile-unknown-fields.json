@@ -1,0 +1,12 @@
+{
+  "nodes": [
+    {
+      "name": "node-a",
+      "vpnIp": "192.0.2.21",
+      "gpu": {
+        "count": 8
+      }
+    }
+  ],
+  "page": 1
+}

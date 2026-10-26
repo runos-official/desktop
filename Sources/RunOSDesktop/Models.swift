@@ -33,6 +33,31 @@ struct CLIStatus: Decodable, Equatable, Sendable {
     let authErrorKind: String?
 }
 
+extension CLIStatus {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, authenticated, accountId, companyName, vpnAccountId, vpnAccountMismatch
+        case vpnRunning, authError, sessionExpired, authErrorKind
+    }
+
+    /// `authenticated` and the flags that decide what the menu does are read strictly. The strings
+    /// that are only shown (ids, names, a sentence) read as "not stated" when they are not strings,
+    /// so a surprising value there never costs the person the whole menu. In an extension so the
+    /// memberwise initialiser stays.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = values.lossyInt(forKey: .schemaVersion)
+        authenticated = try values.decode(Bool.self, forKey: .authenticated)
+        accountId = values.lossy(String.self, forKey: .accountId)
+        companyName = values.lossy(String.self, forKey: .companyName)
+        vpnAccountId = values.lossy(String.self, forKey: .vpnAccountId)
+        vpnAccountMismatch = try values.decodeIfPresent(Bool.self, forKey: .vpnAccountMismatch)
+        vpnRunning = try values.decodeIfPresent(Bool.self, forKey: .vpnRunning)
+        authError = values.lossy(String.self, forKey: .authError)
+        sessionExpired = try values.decodeIfPresent(Bool.self, forKey: .sessionExpired)
+        authErrorKind = values.lossy(String.self, forKey: .authErrorKind)
+    }
+}
+
 struct VPNStatus: Decodable, Equatable, Sendable {
     let schemaVersion: Int?
     let running: Bool
@@ -91,32 +116,74 @@ extension VPNStatus {
 
     /// Reads `clusters` as a list, and a null or missing one as empty. A VPN service that has applied
     /// no cluster document yet used to send null, which failed this whole decode: the menu then lost
-    /// its cluster rows and the Restart VPN item. In an extension so the memberwise initialiser stays.
+    /// its cluster rows and the Restart VPN item. `running` and `session` decide what the menu does,
+    /// so they are required; everything the app only displays reads as "not stated" when it is null,
+    /// missing or of another type. In an extension so the memberwise initialiser stays.
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        schemaVersion = values.lossyInt(forKey: .schemaVersion)
         running = try values.decode(Bool.self, forKey: .running)
-        accountId = try values.decodeIfPresent(String.self, forKey: .accountId)
+        accountId = values.lossy(String.self, forKey: .accountId)
         session = try values.decode(VPNSession.self, forKey: .session)
-        clusters = try values.decodeIfPresent([VPNCluster].self, forKey: .clusters) ?? []
-        lastPollError = try values.decodeIfPresent(String.self, forKey: .lastPollError)
-        interface = try values.decodeIfPresent(String.self, forKey: .interface)
-        address = try values.decodeIfPresent(String.self, forKey: .address)
-        dns = try values.decodeIfPresent(VPNDns.self, forKey: .dns)
-        version = try values.decodeIfPresent(String.self, forKey: .version)
+        clusters = try values.list(VPNCluster.self, forKey: .clusters)
+        lastPollError = values.lossy(String.self, forKey: .lastPollError)
+        interface = values.lossy(String.self, forKey: .interface)
+        address = values.lossy(String.self, forKey: .address)
+        dns = values.lossy(VPNDns.self, forKey: .dns)
+        version = values.lossy(String.self, forKey: .version)
     }
 }
 
 struct VPNDns: Decodable, Equatable, Sendable {
     let available: Bool
     let mode: String?
+    /// The CLI's sentence about the DNS state. With `pending` it is a plain explanation to show
+    /// calmly, without it a failure.
     let error: String?
+    /*
+     The cluster names are not resolvable YET but are being applied, which is the ordinary state for
+     a second or two after the first connect. omitted when false by the CLI, and absent on a released
+     CLI that predates the field, so nil and false both mean "not pending". It is a state to wait
+     through, never an error: see MenuModel.
+    */
+    let pending: Bool?
+
+    init(available: Bool, mode: String?, error: String?, pending: Bool? = nil) {
+        self.available = available
+        self.mode = mode
+        self.error = error
+        self.pending = pending
+    }
+
+    private enum CodingKeys: String, CodingKey { case available, mode, error, pending }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        available = try values.flag(forKey: .available)
+        mode = values.lossy(String.self, forKey: .mode)
+        error = values.lossy(String.self, forKey: .error)
+        pending = values.lossy(Bool.self, forKey: .pending)
+    }
 }
 
 struct VPNSession: Decodable, Equatable, Sendable {
     let present: Bool
     let expiresAt: Date?
     let loginRequired: Bool
+}
+
+extension VPNSession {
+    private enum CodingKeys: String, CodingKey { case present, expiresAt, loginRequired }
+
+    /// An expiry that cannot be read as a date is "no expiry stated", not a failed status: the
+    /// session itself is still described by the flags. In an extension so the memberwise
+    /// initialiser stays.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        present = try values.flag(forKey: .present)
+        expiresAt = values.lossy(Date.self, forKey: .expiresAt)
+        loginRequired = try values.flag(forKey: .loginRequired)
+    }
 }
 
 struct VPNCluster: Decodable, Equatable, Identifiable, Sendable {
@@ -148,6 +215,33 @@ struct VPNCluster: Decodable, Equatable, Identifiable, Sendable {
     var isDeadConnection: Bool { connected && !reachable }
 }
 
+extension VPNCluster {
+    private enum CodingKeys: String, CodingKey {
+        case cid, name, connected, reachable, reason, peerUp, peeredWith
+        case endpoint, resolver, zones, rxBytes, txBytes, lastHandshake
+    }
+
+    /// `cid` is what every action addresses a cluster by, so it is required. `connected` and
+    /// `reachable` decide what is drawn and are flags that read null or missing as false but
+    /// reject a value of another type. The rest is display and reads leniently.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        cid = try values.decode(String.self, forKey: .cid)
+        name = values.lossy(String.self, forKey: .name) ?? ""
+        connected = try values.flag(forKey: .connected)
+        reachable = try values.flag(forKey: .reachable)
+        reason = values.lossy(String.self, forKey: .reason)
+        peerUp = try values.flag(forKey: .peerUp)
+        peeredWith = values.lossy([String].self, forKey: .peeredWith) ?? []
+        endpoint = values.lossy(String.self, forKey: .endpoint)
+        resolver = values.lossy(String.self, forKey: .resolver)
+        zones = values.lossy([String].self, forKey: .zones)
+        rxBytes = values.lossyInt64(forKey: .rxBytes)
+        txBytes = values.lossyInt64(forKey: .txBytes)
+        lastHandshake = values.lossy(Date.self, forKey: .lastHandshake)
+    }
+}
+
 /*
  The accounts a login belongs to, from `runos user accounts --json`.
 
@@ -157,6 +251,15 @@ struct VPNCluster: Decodable, Equatable, Identifiable, Sendable {
 */
 struct UserAccountsResult: Decodable, Equatable, Sendable {
     let accounts: [UserAccountEntry]
+
+    private enum CodingKeys: String, CodingKey { case accounts }
+
+    /// No list, or a null one, is no accounts to switch between.
+    init(from decoder: Decoder) throws {
+        accounts = try decoder.container(keyedBy: CodingKeys.self).list(UserAccountEntry.self, forKey: .accounts)
+    }
+
+    init(accounts: [UserAccountEntry]) { self.accounts = accounts }
 }
 
 struct UserAccountEntry: Decodable, Equatable, Identifiable, Sendable {
@@ -167,6 +270,26 @@ struct UserAccountEntry: Decodable, Equatable, Identifiable, Sendable {
     let isDefault: Bool
 
     var id: String { aid }
+
+    private enum CodingKeys: String, CodingKey { case aid, name, companyName, accountRole, isDefault }
+
+    /// Only the id is needed to switch to an account; the rest is how it is named and described.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        aid = try values.decode(String.self, forKey: .aid)
+        name = values.lossy(String.self, forKey: .name)
+        companyName = values.lossy(String.self, forKey: .companyName)
+        accountRole = values.lossy(String.self, forKey: .accountRole) ?? ""
+        isDefault = try values.flag(forKey: .isDefault)
+    }
+
+    init(aid: String, name: String?, companyName: String?, accountRole: String, isDefault: Bool) {
+        self.aid = aid
+        self.name = name
+        self.companyName = companyName
+        self.accountRole = accountRole
+        self.isDefault = isDefault
+    }
 
     /// Company name, then account name, then the bare id: the console's rule, so both name an
     /// account the same way.
@@ -183,11 +306,31 @@ struct UpdateResult: Decodable, Sendable {
         let updated: Bool
         let version: String?
         let message: String?
+
+        private enum CodingKeys: String, CodingKey { case updated, version, message }
+
+        /// `updated` decides whether the desktop relaunches, so it is required and strict. The
+        /// version and the message are only shown.
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            updated = try values.decode(Bool.self, forKey: .updated)
+            version = values.lossy(String.self, forKey: .version)
+            message = values.lossy(String.self, forKey: .message)
+        }
     }
 
-    let schemaVersion: Int
+    let schemaVersion: Int?
     let cli: Component
     let desktop: Component?
+
+    private enum CodingKeys: String, CodingKey { case schemaVersion, cli, desktop }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = values.lossyInt(forKey: .schemaVersion)
+        cli = try values.decode(Component.self, forKey: .cli)
+        desktop = values.lossy(Component.self, forKey: .desktop)
+    }
 }
 
 enum MenuBarState: Equatable, Sendable {
@@ -325,12 +468,32 @@ struct UpdateCheck: Decodable, Equatable, Sendable {
         let version: String?
 
         var waiting: Bool { updateAvailable == true }
+
+        private enum CodingKeys: String, CodingKey { case updateAvailable, currentVersion, version }
+
+        /// A verdict that is not a boolean is no verdict (nil), never a guess: reading "true" as an
+        /// update would badge the menu bar on every poll.
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            updateAvailable = values.lossy(Bool.self, forKey: .updateAvailable)
+            currentVersion = values.lossy(String.self, forKey: .currentVersion)
+            version = values.lossy(String.self, forKey: .version)
+        }
     }
 
     let schemaVersion: Int?
     let cli: Component
     /// Absent when RunOS Desktop is not installed at all.
     let desktop: Component?
+
+    private enum CodingKeys: String, CodingKey { case schemaVersion, cli, desktop }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = values.lossyInt(forKey: .schemaVersion)
+        cli = try values.decode(Component.self, forKey: .cli)
+        desktop = values.lossy(Component.self, forKey: .desktop)
+    }
 
     /// Either component having something to install is something to install.
     var anyAvailable: Bool { cli.waiting || (desktop?.waiting ?? false) }

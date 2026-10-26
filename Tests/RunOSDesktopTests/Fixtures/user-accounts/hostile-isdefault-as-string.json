@@ -1,0 +1,11 @@
+{
+  "accounts": [
+    {
+      "aid": "acct-example",
+      "name": "Example Account",
+      "companyName": "Example Co",
+      "accountRole": "owner",
+      "isDefault": "true"
+    }
+  ]
+}

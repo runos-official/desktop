@@ -1,0 +1,11 @@
+{
+  "accounts": [
+    {
+      "aid": "acct-example",
+      "name": "",
+      "companyName": "",
+      "accountRole": "",
+      "isDefault": false
+    }
+  ]
+}

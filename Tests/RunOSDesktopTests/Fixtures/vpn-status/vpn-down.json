@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "running": false,
+  "accountId": "acct-example",
+  "session": {
+    "present": false,
+    "loginRequired": false
+  },
+  "clusters": [],
+  "lastPollError": null,
+  "interface": null,
+  "address": null,
+  "dns": null,
+  "version": "1.22.2"
+}

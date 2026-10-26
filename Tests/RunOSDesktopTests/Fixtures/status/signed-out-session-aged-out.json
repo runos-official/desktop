@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "authenticated": false,
+  "authError": "Your session is 28 hours old. Run `runos login` to sign in again.",
+  "sessionExpired": true
+}

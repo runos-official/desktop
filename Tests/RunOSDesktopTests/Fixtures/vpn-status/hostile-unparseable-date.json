@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "running": true,
+  "accountId": "acct-example",
+  "session": {
+    "present": true,
+    "expiresAt": "tomorrow, about nine",
+    "loginRequired": false
+  },
+  "clusters": [
+    {
+      "cid": "c-example1",
+      "name": "Example Cluster",
+      "connected": true,
+      "reachable": true,
+      "reason": null,
+      "peerUp": true,
+      "peeredWith": [],
+      "endpoint": "192.0.2.10:51820",
+      "resolver": "192.0.2.53",
+      "zones": [
+        "example.test"
+      ],
+      "rxBytes": 1024,
+      "txBytes": 2048,
+      "lastHandshake": "2026-10-26T09:29:30Z"
+    }
+  ],
+  "lastPollError": null,
+  "interface": "utun7",
+  "address": "192.0.2.2/32",
+  "dns": {
+    "available": true,
+    "mode": "resolver-files"
+  },
+  "version": "1.22.2"
+}

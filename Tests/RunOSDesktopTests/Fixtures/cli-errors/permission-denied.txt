@@ -1,0 +1,1 @@
+Error: permission denied reading the control socket; your account may need to be in the staff group.

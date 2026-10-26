@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "authenticated": false,
+  "accountId": "acct-example",
+  "authError": "Your sign-in has ended. Run `runos login` to sign in again.",
+  "authErrorKind": "rejected"
+}

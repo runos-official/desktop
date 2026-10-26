@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "authenticated": null,
+  "accountId": "acct-example",
+  "companyName": "Example Co",
+  "vpnAccountId": "acct-example",
+  "vpnAccountMismatch": false,
+  "vpnRunning": true
+}

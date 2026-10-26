@@ -1,0 +1,1 @@
+Error: the VPN daemon is not answering on its control socket. Try 'runos vpn restart'.

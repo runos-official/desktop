@@ -1,0 +1,2 @@
+Error: the RunOS VPN service is not running (/var/run/runos-vpn.sock).
+Run 'sudo runos vpn install' first.

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 99,
+  "cli": {
+    "updateAvailable": true
+  },
+  "components": [
+    "cli"
+  ]
+}

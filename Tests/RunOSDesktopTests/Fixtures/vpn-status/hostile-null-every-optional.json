@@ -1,0 +1,32 @@
+{
+  "schemaVersion": null,
+  "running": true,
+  "accountId": null,
+  "session": {
+    "present": true,
+    "expiresAt": null,
+    "loginRequired": false
+  },
+  "clusters": [
+    {
+      "cid": "c-example1",
+      "name": "Example Cluster",
+      "connected": true,
+      "reachable": true,
+      "reason": null,
+      "peerUp": null,
+      "peeredWith": null,
+      "endpoint": null,
+      "resolver": null,
+      "zones": null,
+      "rxBytes": null,
+      "txBytes": null,
+      "lastHandshake": null
+    }
+  ],
+  "lastPollError": null,
+  "interface": null,
+  "address": null,
+  "dns": null,
+  "version": null
+}

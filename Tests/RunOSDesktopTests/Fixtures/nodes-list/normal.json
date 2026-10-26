@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    {
+      "name": "node-a",
+      "hostname": "node-a.example.test",
+      "vpnIp": "192.0.2.21"
+    },
+    {
+      "name": "",
+      "hostname": "node-b.example.test",
+      "vpnIp": "192.0.2.22"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "accounts": [
+    {
+      "name": "Nameless",
+      "accountRole": "owner",
+      "isDefault": true
+    }
+  ]
+}

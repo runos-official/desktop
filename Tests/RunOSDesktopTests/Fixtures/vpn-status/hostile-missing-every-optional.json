@@ -1,0 +1,15 @@
+{
+  "running": true,
+  "session": {
+    "present": true,
+    "loginRequired": false
+  },
+  "clusters": [
+    {
+      "cid": "c-example1",
+      "name": "Example Cluster",
+      "connected": true,
+      "reachable": true
+    }
+  ]
+}

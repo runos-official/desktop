@@ -93,6 +93,16 @@ struct DiagnosticsNode: Decodable, Equatable, Sendable {
     let hostname: String?
     let vpnIp: String?
 
+    private enum CodingKeys: String, CodingKey { case name, hostname, vpnIp }
+
+    /// Every field is only shown, so none of them can fail the list.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = values.lossy(String.self, forKey: .name)
+        hostname = values.lossy(String.self, forKey: .hostname)
+        vpnIp = values.lossy(String.self, forKey: .vpnIp)
+    }
+
     var label: String {
         let trimmed = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
@@ -102,4 +112,10 @@ struct DiagnosticsNode: Decodable, Equatable, Sendable {
 
 struct DiagnosticsNodeList: Decodable, Sendable {
     let nodes: [DiagnosticsNode]
+
+    private enum CodingKeys: String, CodingKey { case nodes }
+
+    init(from decoder: Decoder) throws {
+        nodes = try decoder.container(keyedBy: CodingKeys.self).list(DiagnosticsNode.self, forKey: .nodes)
+    }
 }

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "authenticated": true,
+  "accountId": "",
+  "companyName": "",
+  "vpnAccountId": "",
+  "vpnAccountMismatch": false,
+  "vpnRunning": true,
+  "authError": "",
+  "authErrorKind": ""
+}

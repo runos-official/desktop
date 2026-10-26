@@ -1,0 +1,1 @@
+Error: private DNS zone example.test could not be applied: the resolver did not answer within 10s. This is usually timing rather than a broken cluster. Run `runos vpn connect c-example1` again in a few seconds; if it keeps failing, run `runos vpn diagnose` and send the output to support.

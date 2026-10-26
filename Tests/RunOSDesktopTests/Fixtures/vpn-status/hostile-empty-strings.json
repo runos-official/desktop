@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "running": true,
+  "accountId": "",
+  "session": {
+    "present": true,
+    "expiresAt": "2026-10-27T09:30:00Z",
+    "loginRequired": false
+  },
+  "clusters": [
+    {
+      "cid": "c-example1",
+      "name": "",
+      "connected": true,
+      "reachable": true,
+      "reason": "",
+      "peerUp": true,
+      "peeredWith": [],
+      "endpoint": "",
+      "resolver": "",
+      "zones": [],
+      "rxBytes": 1024,
+      "txBytes": 2048,
+      "lastHandshake": "2026-10-26T09:29:30Z"
+    }
+  ],
+  "lastPollError": "",
+  "interface": "",
+  "address": "",
+  "dns": {
+    "available": true,
+    "mode": "resolver-files"
+  },
+  "version": ""
+}

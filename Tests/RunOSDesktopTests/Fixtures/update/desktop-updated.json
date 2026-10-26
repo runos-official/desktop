@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "cli": {
+    "updated": false,
+    "version": "1.22.2"
+  },
+  "desktop": {
+    "updated": true,
+    "version": "0.4.7",
+    "message": "Updated"
+  }
+}

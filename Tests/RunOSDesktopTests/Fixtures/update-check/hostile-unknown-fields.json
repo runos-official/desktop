@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "cli": {
+    "updateAvailable": true,
+    "channel": "stable"
+  },
+  "desktop": null,
+  "extra": [
+    1
+  ]
+}

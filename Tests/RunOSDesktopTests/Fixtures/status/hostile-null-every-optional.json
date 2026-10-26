@@ -1,0 +1,12 @@
+{
+  "schemaVersion": null,
+  "authenticated": true,
+  "accountId": null,
+  "companyName": null,
+  "vpnAccountId": null,
+  "vpnAccountMismatch": null,
+  "vpnRunning": null,
+  "authError": null,
+  "sessionExpired": null,
+  "authErrorKind": null
+}
