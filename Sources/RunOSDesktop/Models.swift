@@ -342,7 +342,13 @@ enum MenuBarState: Equatable, Sendable {
 extension JSONDecoder {
     static var runOS: JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let text = try decoder.singleValueContainer().decode(String.self)
+            guard let date = ContractDate.parse(text) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "not a time: \(text)"))
+            }
+            return date
+        }
         return decoder
     }
 }

@@ -153,3 +153,30 @@ extension KeyedDecodingContainer {
         try decodeIfPresent(Bool.self, forKey: key) ?? fallback
     }
 }
+
+/*
+ The one place a CLI timestamp becomes a Date.
+
+ Foundation's `.iso8601` strategy takes fractional seconds on some macOS releases and refuses them on
+ others, so the same status line decoded on a newer Mac and failed on an older one. This parser splits the
+ fraction off itself and adds it back, so a whole-second time, a fraction of any length and a UTC offset
+ read the same on every macOS the app runs on. A string that is not a time returns nil.
+ */
+enum ContractDate {
+    static func parse(_ text: String) -> Date? {
+        var base = text
+        var fraction = 0.0
+        if let dot = text.firstIndex(of: ".") {
+            var end = text.index(after: dot)
+            while end < text.endIndex, text[end].isASCII, text[end].isNumber { end = text.index(after: end) }
+            let digits = text[text.index(after: dot)..<end]
+            guard !digits.isEmpty, let value = Double("0." + digits) else { return nil }
+            fraction = value
+            base = String(text[text.startIndex..<dot]) + String(text[end...])
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let date = formatter.date(from: base) else { return nil }
+        return date.addingTimeInterval(fraction)
+    }
+}

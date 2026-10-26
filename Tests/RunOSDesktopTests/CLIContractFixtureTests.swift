@@ -388,4 +388,18 @@ final class CLIContractFixtureTests: XCTestCase {
             }
         }
     }
+
+    // The parser does not lean on Foundation's ISO 8601 handling, which differs between macOS releases:
+    // the fractional-seconds fixture decoded on a new Mac and failed on the older one that builds the app.
+    func testContractDateReadsEveryFormTheCLIMayWrite() throws {
+        let whole = try XCTUnwrap(ContractDate.parse("2026-10-27T09:30:00Z"))
+        XCTAssertEqual(whole.timeIntervalSince1970, 1_793_093_400, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(ContractDate.parse("2026-10-27T09:30:00.123Z")).timeIntervalSince(whole), 0.123, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(ContractDate.parse("2026-10-27T09:30:00.123456789Z")).timeIntervalSince(whole), 0.123456789, accuracy: 0.001)
+        XCTAssertEqual(ContractDate.parse("2026-10-27T11:30:00+02:00"), whole)
+        XCTAssertEqual(try XCTUnwrap(ContractDate.parse("2026-10-27T11:30:00.5+02:00")).timeIntervalSince(whole), 0.5, accuracy: 0.001)
+        for bad in ["", "tomorrow", "2026-10-27", "2026-10-27T09:30:00.Z", "2026-13-40T99:99:99Z"] {
+            XCTAssertNil(ContractDate.parse(bad), bad)
+        }
+    }
 }
