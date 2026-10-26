@@ -83,6 +83,30 @@ struct VPNStatus: Decodable, Equatable, Sendable {
     }
 }
 
+extension VPNStatus {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, running, accountId, session, clusters, lastPollError
+        case interface, address, dns, version
+    }
+
+    /// Reads `clusters` as a list, and a null or missing one as empty. A VPN service that has applied
+    /// no cluster document yet used to send null, which failed this whole decode: the menu then lost
+    /// its cluster rows and the Restart VPN item. In an extension so the memberwise initialiser stays.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        running = try values.decode(Bool.self, forKey: .running)
+        accountId = try values.decodeIfPresent(String.self, forKey: .accountId)
+        session = try values.decode(VPNSession.self, forKey: .session)
+        clusters = try values.decodeIfPresent([VPNCluster].self, forKey: .clusters) ?? []
+        lastPollError = try values.decodeIfPresent(String.self, forKey: .lastPollError)
+        interface = try values.decodeIfPresent(String.self, forKey: .interface)
+        address = try values.decodeIfPresent(String.self, forKey: .address)
+        dns = try values.decodeIfPresent(VPNDns.self, forKey: .dns)
+        version = try values.decodeIfPresent(String.self, forKey: .version)
+    }
+}
+
 struct VPNDns: Decodable, Equatable, Sendable {
     let available: Bool
     let mode: String?

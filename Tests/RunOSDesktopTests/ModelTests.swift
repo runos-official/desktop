@@ -18,6 +18,19 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(result.clusters.first?.peeredWith, ["c2"])
     }
 
+    /// A VPN service that has applied no cluster document yet can send `"clusters": null`. That used
+    /// to fail the whole decode, so the menu lost its cluster rows and the Restart VPN item (FCR 1730).
+    func testVPNStatusDecoderReadsNullAndMissingClustersAsEmpty() throws {
+        let withNull = Data(#"{"schemaVersion":2,"running":true,"session":{"present":true,"loginRequired":false},"clusters":null,"version":"dev-1"}"#.utf8)
+        let missing = Data(#"{"schemaVersion":2,"running":true,"session":{"present":true,"loginRequired":false},"version":"dev-1"}"#.utf8)
+        for data in [withNull, missing] {
+            let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
+            XCTAssertTrue(result.clusters.isEmpty)
+            XCTAssertEqual(result.version, "dev-1")
+            XCTAssertTrue(result.running)
+        }
+    }
+
     func testConnectableClustersExcludeUnavailableVPNs() throws {
         let data = Data(#"{"schemaVersion":1,"running":true,"session":{"present":true,"loginRequired":false},"clusters":[{"cid":"ready","name":"Ready","connected":false,"reachable":true,"peerUp":false,"peeredWith":[]},{"cid":"active","name":"Active","connected":true,"reachable":false,"peerUp":true,"peeredWith":[]},{"cid":"missing","name":"Missing","connected":false,"reachable":false,"reason":"no VPN server installed","peerUp":false,"peeredWith":[]}] }"#.utf8)
         let result = try JSONDecoder.runOS.decode(VPNStatus.self, from: data)
