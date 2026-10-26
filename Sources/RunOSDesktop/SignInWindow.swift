@@ -25,6 +25,11 @@ enum SignInPhase: Equatable {
     case waiting
     case authorized
     case failed(String)
+
+    var isFailure: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 /*
@@ -230,7 +235,9 @@ final class SignInRunner: ObservableObject {
                 await self?.finish(result)
             } catch is CancellationError {
             } catch {
-                await self?.fail(ConnectionDiagnostics.concise(error.localizedDescription))
+                // The whole sentence. `concise` is for a one-line table row; applied here it cut a
+                // long CLI error to its first 80 characters, dropping the part that says what to do.
+                await self?.fail(ErrorPresentation.fullText(error.localizedDescription))
             }
         }
     }
@@ -438,10 +445,17 @@ private struct SignInView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            deviceCodeSection
-            Divider()
-            urlSection
-            Divider()
+            /*
+             A FAILED RUN GIVES ITS SPACE TO THE REASON. The code and the link belong to a run that
+             is over, and the window is a fixed height: keeping them beside a long sentence is what
+             squeezed the sentence into one clipped line (FCR 1730).
+            */
+            if !model.phase.isFailure {
+                deviceCodeSection
+                Divider()
+                urlSection
+                Divider()
+            }
             statusSection
             Spacer()
             HStack {
@@ -533,10 +547,35 @@ private struct SignInView: View {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text(model.purpose.approvedMessage)
             case .failed(let message):
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-                Text(message).foregroundStyle(.secondary)
+                SignInFailureView(message: message)
             }
         }
         .font(.callout)
+    }
+}
+
+/*
+ A failed sign-in, in full.
+
+ The status line used to be a one-line Text in a fixed-height window, so a long CLI sentence ended
+ in an ellipsis before the part that says what to do ("... usually timing rather than a broken
+ cluster. R…", FCR 1730). The message now wraps inside a scroll area, can be selected and copied,
+ and is never shortened: the CLI's words reach the person whole.
+*/
+struct SignInFailureView: View {
+    let message: String
+    static let maxHeight: CGFloat = 240
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            ScrollView {
+                Text(ErrorPresentation.fullText(message))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: Self.maxHeight)
+        }
     }
 }

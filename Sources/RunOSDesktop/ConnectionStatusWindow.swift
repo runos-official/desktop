@@ -135,9 +135,13 @@ final class ConnectionStatusRunner: ObservableObject {
         await runStep(id: "\(cluster.cid)-nodes", cluster: label, title: "List nodes") {
             do {
                 let result = try await Self.run("/usr/bin/env", ["runos", "nodes", "list", "--cid", cluster.cid, "-j"], viaCli: true)
-                let list = try JSONDecoder.runOS.decode(DiagnosticsNodeList.self, from: result.stdout)
-                nodes = list.nodes
-                return .passed("\(list.nodes.count) node(s)")
+                switch CLIReading.decode(DiagnosticsNodeList.self, from: result.stdout, what: "the node list") {
+                case .success(let list):
+                    nodes = list.nodes
+                    return .passed("\(list.nodes.count) node(s)")
+                case .failure(let failure):
+                    return .failed(failure.reason)
+                }
             } catch {
                 return .failed(ConnectionDiagnostics.concise(error.localizedDescription))
             }

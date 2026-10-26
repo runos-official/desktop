@@ -62,6 +62,24 @@ final class ErrorBuffer: @unchecked Sendable {
     }
 }
 
+/// Whether the watchdog stopped the process, readable from the task that is waiting on it.
+final class TimeoutFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func fire() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    var fired: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 actor CLIRunner {
     let executableURL: URL
 
@@ -90,8 +108,17 @@ actor CLIRunner {
         try await execute(arguments)
     }
 
-    func run(_ arguments: [String]) async throws -> CLIResult {
-        let result = try await execute(arguments)
+    /*
+     `timeout` is for READS: a status question that has not been answered after this long is not
+     going to be, and a hung CLI must not hang the menu with it. Without a bound, one wedged
+     `runos status` held the refresh forever, and since the poll awaits the refresh, no later poll
+     ever ran: the menu froze on its last words with nothing to say it had stopped updating.
+
+     Nil (the default) is no bound, which is right for an ACTION: an update downloads and a connect
+     waits on a person, and either can legitimately take minutes.
+    */
+    func run(_ arguments: [String], timeout: Duration? = nil) async throws -> CLIResult {
+        let result = try await execute(arguments, timeout: timeout)
         if result.exitCode != 0 {
             let stdoutMessage = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             throw CLIExecutionError(
@@ -195,8 +222,9 @@ actor CLIRunner {
         return CLIStreamResult(exitCode: exitCode, errorOutput: collectedErrors.text())
     }
 
-    private func execute(_ arguments: [String]) async throws -> CLIResult {
+    private func execute(_ arguments: [String], timeout: Duration? = nil) async throws -> CLIResult {
         let process = Process()
+        let deadline = TimeoutFlag()
         let fileManager = FileManager.default
         let executionDirectory = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try fileManager.createDirectory(
@@ -223,6 +251,22 @@ actor CLIRunner {
         process.standardOutput = outputHandle
         process.standardError = errorHandle
         try Task.checkCancellation()
+        /*
+         The watchdog: ask the process to stop at the deadline, and insist two seconds later. SIGTERM
+         is a request a wedged process can ignore, and a process that ignores it never fires the
+         termination handler, which would hang the wait this exists to bound.
+        */
+        let timer: Task<Void, Never>? = timeout.map { limit in
+            Task {
+                try? await Task.sleep(for: limit)
+                guard !Task.isCancelled, process.isRunning else { return }
+                deadline.fire()
+                process.terminate()
+                try? await Task.sleep(for: .seconds(2))
+                if !Task.isCancelled, process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
+        }
+        defer { timer?.cancel() }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 process.terminationHandler = { _ in
@@ -244,6 +288,12 @@ actor CLIRunner {
             }
         }
         try Task.checkCancellation()
+        if deadline.fired, let timeout {
+            throw CLIExecutionError(
+                exitCode: -2,
+                message: "RunOS did not answer within \(Int(timeout.components.seconds)) seconds (runos \(arguments.joined(separator: " "))). It may be stuck."
+            )
+        }
         try outputHandle.close()
         try errorHandle.close()
 

@@ -5,6 +5,16 @@ import Foundation
 final class StateStore: ObservableObject {
     @Published var cliStatus: CLIStatus?
     @Published var vpnStatus: VPNStatus?
+    /*
+     WHY `vpnStatus` IS NIL, when it is nil because something went wrong and not because nothing has
+     been read yet (FCR 1730).
+
+     A nil status draws a bare menu: no cluster rows, no Connect, no Restart VPN. When the CLI
+     printed something this app could not read, that bare menu said nothing about why. This holds the
+     reason so the menu can say it, and so the Restart VPN item can be offered: a service that answers
+     badly is exactly the one a restart might fix.
+    */
+    @Published var vpnStatusProblem: VPNStatusProblem?
     @Published var traffic = TrafficSampler()
     @Published var errorMessage: String?
     /// Something that finished and is worth saying once, such as a renewed VPN session. Not a
@@ -204,6 +214,35 @@ final class StateStore: ObservableObject {
         looksMissing && !restartInProgress
     }
 
+    /// The VPN service answered, or failed to answer, in a way that left no status to show.
+    var vpnStatusUnreadable: Bool { vpnStatusProblem != nil }
+
+    /*
+     Whether the menu offers Restart VPN.
+
+     On BUILD DRIFT, as before. And on an UNREADABLE STATUS, because with `vpnStatus` nil the drift
+     check has nothing to compare and the item used to vanish exactly when it was needed: the service
+     that answers badly is the one that wants restarting (FCR 1730). Never while the service is
+     missing: there is nothing installed to restart, and the Install item is the remedy.
+    */
+    var vpnRestartOffered: Bool {
+        (vpnRestartRequired || vpnStatusUnreadable) && !vpnServiceMissing
+    }
+
+    /*
+     The tunnel is up and the cluster names are not resolvable yet, because macOS is still applying
+     them. A calm state for a second or two after the first connect, never an error (FCR 1730).
+     Only while connected: "Connected." would be a claim about a tunnel that is not carrying anything.
+    */
+    var dnsPending: Bool { vpnConnected && vpnStatus?.dns?.pending == true }
+
+    /// The CLI's own sentence when DNS genuinely failed. Never while pending, and never an empty one.
+    var dnsFailure: String? {
+        guard vpnConnected, let dns = vpnStatus?.dns, !dns.available, dns.pending != true else { return nil }
+        let text = (dns.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     var vpnControlsUsable: Bool { cliStatus != nil && !signInRequired && !vpnServiceMissing }
 
     /*
@@ -252,7 +291,7 @@ final class StateStore: ObservableObject {
     var updateActionTitle: String { isUpdating ? "Updating RunOS…" : "Update RunOS" }
 
     var menuBarState: MenuBarState {
-        if isBusy || errorMessage != nil || cliOutdated || signInRequired {
+        if isBusy || errorMessage != nil || cliOutdated || signInRequired || vpnStatusUnreadable || dnsFailure != nil {
             return .attention
         }
         /*
@@ -284,4 +323,12 @@ enum VPNMenuMode: Equatable {
     case connected
     /// A live session with the tunnel down, or nothing read yet: the one useful action is Connect.
     case disconnected
+}
+
+/// Why there is no VPN status to show. See `StateStore.vpnStatusProblem`.
+enum VPNStatusProblem: Equatable, Sendable {
+    /// The command succeeded and printed something that could not be read. Carries the plain reason.
+    case unreadable(ReadFailure)
+    /// The command failed. The CLI's own sentence is in `StateStore.errorMessage` and is not repeated.
+    case notAnswering
 }

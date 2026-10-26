@@ -76,10 +76,24 @@ final class RefreshCoordinator: ObservableObject {
     /// reading the developer's real one.
     private let autoConnect: StartupConnectController
 
-    init(store: StateStore, runner: CLIRunner?, autoConnect: StartupConnectController = StartupConnectController()) {
+    /// How long a status READ may take before the CLI is called stuck. See `CLIRunner.run`.
+    private let readTimeout: Duration
+    /// How often the poll refreshes with the menu open and closed. Injected so a test can watch the
+    /// cadence in milliseconds rather than wait half a minute.
+    private let pollIntervals: (open: Duration, closed: Duration)
+
+    init(
+        store: StateStore,
+        runner: CLIRunner?,
+        autoConnect: StartupConnectController = StartupConnectController(),
+        readTimeout: Duration = .seconds(30),
+        pollIntervals: (open: Duration, closed: Duration) = (.seconds(5), .seconds(30))
+    ) {
         self.store = store
         self.runner = runner
         self.autoConnect = autoConnect
+        self.readTimeout = readTimeout
+        self.pollIntervals = pollIntervals
         storeObservation = store.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
@@ -125,7 +139,7 @@ final class RefreshCoordinator: ObservableObject {
         if runner == nil { adoptNewlyInstalledCLI() }
         guard let runner else { return }
         do {
-            let version = try await runner.run(["--version"])
+            let version = try await runner.run(["--version"], timeout: readTimeout)
             let currentVersion = String(decoding: version.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             let compatibility = VersionComparator.compatibility(currentVersion, minimum: minimumCLIVersion)
             /*
@@ -169,7 +183,7 @@ final class RefreshCoordinator: ObservableObject {
                 update(\.errorMessage, to: "RunOS Desktop cannot identify CLI version '\(currentVersion)'. Run 'runos update'.")
                 return
             }
-            let statusResult = try await runner.run(["status", "--json"])
+            let statusResult = try await runner.run(["status", "--json"], timeout: readTimeout)
             /*
              NOT `try?`. Discarding this error is what made a missing VPN service invisible: the
              status became nil, the menu rendered "disconnected", and the CLI's own sentence naming
@@ -186,34 +200,72 @@ final class RefreshCoordinator: ObservableObject {
              refresh puts it in this variable.
             */
             var refreshFailure: String?
+            var vpnProblem: VPNStatusProblem?
             var vpnResult: CLIResult?
             do {
-                vpnResult = try await runner.run(["vpn", "status", "--json"])
+                vpnResult = try await runner.run(["vpn", "status", "--json"], timeout: readTimeout)
                 update(\.vpnServiceMissing, to: false)
             } catch {
                 let missing = StateStore.isServiceGenuinelyMissing(
                     looksMissing: VPNService.isMissing(error), restartInProgress: restartingService)
                 update(\.vpnServiceMissing, to: missing)
-                if !missing { refreshFailure = error.localizedDescription }
+                if !missing {
+                    refreshFailure = error.localizedDescription
+                    vpnProblem = .notAnswering
+                }
             }
-            let status = try statusResult.decode(CLIStatus.self)
-            let vpn = try? vpnResult?.decode(VPNStatus.self)
             /*
-             `try?`, on purpose. A CLI older than account sharing has no `user accounts` and exits
-             with "unexpected command"; that is not a failure of this refresh, it is a menu item
-             the machine does not get yet. Signed out, there is nothing to list.
+             NOT `try`: a status the app cannot read is shown as one (FCR 1730). Throwing here sent
+             Foundation's "The data couldn't be read because it is missing." to the menu, which names
+             neither the command nor the field.
+            */
+            let status: CLIStatus
+            switch CLIReading.decode(CLIStatus.self, from: statusResult, what: "the RunOS status") {
+            case .success(let decoded): status = decoded
+            case .failure(let failure):
+                update(\.errorMessage, to: failure.summary)
+                return
+            }
+            /*
+             THE VPN STATUS IS NEVER DROPPED SILENTLY (FCR 1730).
+
+             This was `try? vpnResult?.decode(...)`. A VPN service that answered with a shape this
+             app could not read produced a nil status and a bare menu: no clusters, no Connect, no
+             Restart VPN, and not a word about why. Now the failure is kept with its reason, the
+             menu says "Cannot read the VPN status", and Restart VPN is offered.
+            */
+            var vpn: VPNStatus?
+            if let vpnResult {
+                switch CLIReading.decode(VPNStatus.self, from: vpnResult, what: "the VPN status") {
+                case .success(let decoded): vpn = decoded
+                case .failure(let failure): vpnProblem = .unreadable(failure)
+                }
+            }
+            /*
+             `try?` on the COMMAND, on purpose. A CLI older than account sharing has no `user
+             accounts` and exits with "unexpected command"; that is not a failure of this refresh, it
+             is a menu item the machine does not get yet. Signed out, there is nothing to list.
+
+             A command that SUCCEEDED and printed JSON this app cannot read is different: the
+             Switch Account item would vanish with no word, so that says so. Text that is not JSON
+             at all is an older CLI answering with its help, and stays quiet.
             */
             var accounts: [UserAccountEntry] = []
+            var accountsFailure: String?
             if status.authenticated,
-               let listed = try? await runner.run(DesktopCommands.listAccounts()),
-               let decoded = try? listed.decode(UserAccountsResult.self) {
-                accounts = decoded.accounts
+               let listed = try? await runner.run(DesktopCommands.listAccounts(), timeout: readTimeout) {
+                switch CLIReading.decode(UserAccountsResult.self, from: listed, what: "the account list") {
+                case .success(let decoded): accounts = decoded.accounts
+                case .failure(let failure):
+                    if Self.looksLikeJSON(listed.stdout) { accountsFailure = failure.summary }
+                }
             }
             // A newer refresh started while this one was waiting on the CLI, so this answer is
             // already out of date. Publishing it would put the older facts on screen.
             guard generation == refreshGeneration else { return }
             update(\.cliStatus, to: status)
             update(\.vpnStatus, to: vpn)
+            update(\.vpnStatusProblem, to: vpnProblem)
             update(\.accounts, to: accounts)
             if let vpn, vpn.running {
                 store.traffic.record(total: vpn.totalTrafficBytes)
@@ -230,7 +282,7 @@ final class RefreshCoordinator: ObservableObject {
              person whose menu has gone quiet should know the app cannot reach anything, but it shows
              as the one sentence the CLI now writes for it.
             */
-            update(\.errorMessage, to: refreshFailure ?? (store.signInRequired ? nil : status.authError))
+            update(\.errorMessage, to: refreshFailure ?? accountsFailure ?? (store.signInRequired ? nil : status.authError))
             autoConnectIfASignInJustCompleted()
             await checkForUpdatesIfDue()
         } catch is CancellationError {
@@ -323,8 +375,8 @@ final class RefreshCoordinator: ObservableObject {
         let now = self.now()
         guard let runner else { return }
         if let next = nextUpdateCheck, now < next { return }
-        guard let result = try? await runner.run(["update", "--check", "--json"]),
-              let check = try? result.decode(UpdateCheck.self) else {
+        guard let result = try? await runner.run(["update", "--check", "--json"], timeout: readTimeout),
+              case .success(let check) = CLIReading.decode(UpdateCheck.self, from: result, what: "the update check") else {
             /*
              ASKED, AND GOT NOTHING USABLE. That is a verdict-less answer, not a state of having
              never asked, and the difference decides whether Update RunOS is clickable.
@@ -634,7 +686,7 @@ final class RefreshCoordinator: ObservableObject {
             var replacedTheCLI = false
             do {
                 let result = try await runner.run(["update", "--json"])
-                let update = try result.decode(UpdateResult.self)
+                let update = try CLIReading.decode(UpdateResult.self, from: result, what: "the update result").get()
                 replacedTheCLI = update.cli.updated
                 if update.desktop?.updated == true {
                     _ = try await runner.run(["desktop", "relaunch", "--wait-pid", String(ProcessInfo.processInfo.processIdentifier)])
@@ -676,14 +728,30 @@ final class RefreshCoordinator: ObservableObject {
 
     private func schedulePoll() {
         pollTask?.cancel()
-        let interval = menuIsOpen ? Duration.seconds(5) : Duration.seconds(30)
+        let interval = menuIsOpen ? pollIntervals.open : pollIntervals.closed
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
-                guard !Task.isCancelled else { return }
-                await self?.refresh()
+                // A coordinator that has gone away ends its poll. `self?.refresh()` alone left the
+                // loop spinning on a nil for the life of the process.
+                guard !Task.isCancelled, let self else { return }
+                await self.refresh()
             }
         }
+    }
+
+    /// Stop polling and abandon a running action. The app never calls this (the coordinator lives as
+    /// long as the process); tests do, so a finished test leaves no task behind.
+    func stop() {
+        pollTask?.cancel()
+        pollTask = nil
+        actionTask?.cancel()
+        noticeTask?.cancel()
+    }
+
+    private static func looksLikeJSON(_ data: Data) -> Bool {
+        let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.hasPrefix("{") || text.hasPrefix("[")
     }
 
     private var minimumCLIVersion: String {

@@ -12,9 +12,12 @@ enum MenuPresentation {
     /// The Sign In and Renew buttons carry the operation text themselves while one runs ("Finishing
     /// sign in…" replaces "Sign In"), so printing it again above the button read as two sign-ins,
     /// or as something stuck (FCR 1726). The line is for an operation no button already says.
-    static func showsOperationLine(operationMessage: String?, signInButtonShown: Bool, renewButtonShown: Bool) -> Bool {
+    static func showsOperationLine(
+        operationMessage: String?, signInButtonShown: Bool, renewButtonShown: Bool, updateButtonShown: Bool = false
+    ) -> Bool {
         guard let operationMessage, !operationMessage.isEmpty else { return false }
-        return !signInButtonShown && !renewButtonShown
+        // The Update RunOS item reads "Updating RunOS…" while an update runs, so it carries the text too.
+        return !signInButtonShown && !renewButtonShown && !updateButtonShown
     }
 
     static func clusterLabel(name: String, cid: String) -> String {
@@ -82,6 +85,10 @@ enum MenuPresentation {
     }
 }
 
+/*
+ Draws `MenuModel`. It decides nothing: what is in the menu, in what order, and what is enabled is
+ all in the model, where a test can run every state through it.
+*/
 struct MenuContentView: View {
     @ObservedObject var coordinator: RefreshCoordinator
     @ObservedObject var loginItem: LoginItemController
@@ -89,272 +96,112 @@ struct MenuContentView: View {
 
     private var store: StateStore { coordinator.store }
 
+    private var layout: MenuLayout {
+        MenuModel.build(
+            store: store,
+            launchAtLogin: loginItem.isEnabled,
+            connectAutomatically: startupConnect.isEnabled,
+            loginItemError: loginItem.errorMessage,
+            now: Date())
+    }
+
     var body: some View {
-        Group {
-            Group {
-                statusMessages
-                vpnMenu
+        let current = layout
+        MenuItemsView(items: current.items) { perform($0, details: current.details) }
+            .onAppear {
+                coordinator.setMenuOpen(true)
+                // The person can change this in System Settings, so the toggle is re-read rather than
+                // remembered from launch. See LoginItemController.refresh.
+                loginItem.refresh()
+            }
+            .onDisappear { coordinator.setMenuOpen(false) }
+    }
+
+    private func perform(_ action: MenuAction, details: String?) {
+        switch action {
+        case .signIn: coordinator.beginSignIn(purpose: .signIn)
+        case .renewSession: coordinator.beginSignIn(purpose: .renew)
+        // Connecting can still need a browser round trip: conductor mints a VPN session only from a
+        // sign-in in the last five minutes. That is a CONFIRMATION, and the window says so.
+        case .connect: coordinator.beginSignIn(purpose: .confirm)
+        case .disconnect: coordinator.disconnectVPN()
+        case .signOut: coordinator.signOut()
+        case .installVPNService: coordinator.installVPNService()
+        case .restartVPN: coordinator.restartVPNService()
+        case .updateRunOS: coordinator.updateRunOS()
+        case .toggleCluster(let cid, let connected, let label):
+            coordinator.perform(
+                DesktopCommands.toggleCluster(cid, isConnected: connected),
+                message: connected ? "Disconnecting \(label)…" : "Connecting \(label)…")
+        case .switchAccount(let aid):
+            if let account = store.accounts.first(where: { $0.aid == aid }) { coordinator.switchAccount(account) }
+        case .cancelOperation: coordinator.cancelOperation()
+        case .showDetails: ErrorDetailsWindowController.shared.show(details ?? "")
+        case .setLaunchAtLogin(let enabled): loginItem.setEnabled(enabled)
+        case .setConnectAutomatically(let enabled): startupConnect.setEnabled(enabled)
+        case .showConnectionStatus: ConnectionStatusWindowController.shared.show(vpn: store.vpnStatus)
+        case .showAbout:
+            AboutPresenter.live.show(AboutDetails(
+                desktopVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development",
+                cliVersion: store.cliVersion,
+                accountId: store.activeAccountId,
+                companyName: store.cliStatus?.companyName,
+                vpn: store.vpnStatus,
+                trafficSlots: store.traffic.hourSlots(),
+                trafficTotal: store.traffic.lastHourTotal
+            ))
+        case .quit: NSApplication.shared.terminate(nil)
+        }
+    }
+}
+
+/*
+ PLAIN TEXT, no `Label`, in the menu body.
+
+ An icon in a menu item widens the leading column for EVERY item in the group, so one Label pushed
+ the sign-in line, the Sign In button and the VPN submenu right, past the checkmark column the rest
+ of the menu aligns to. The menu then looked like two menus. The one exception is the active account,
+ which carries its checkmark inside its own submenu where nothing else is aligned to it.
+*/
+private struct MenuItemsView: View {
+    let items: [MenuItem]
+    let perform: (MenuAction) -> Void
+
+    var body: some View {
+        ForEach(items) { item in
+            switch item.kind {
+            case .divider:
                 Divider()
-                actionItems
-            }
-            .disabled(store.isBusy)
-            Divider()
-            Button("Connection Status") {
-                ConnectionStatusWindowController.shared.show(vpn: store.vpnStatus)
-            }
-            .disabled(store.vpnStatus?.running != true)
-            Button("About RunOS Desktop") {
-                AboutPresenter.live.show(AboutDetails(
-                    desktopVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development",
-                    cliVersion: store.cliVersion,
-                    accountId: store.activeAccountId,
-                    companyName: store.cliStatus?.companyName,
-                    vpn: store.vpnStatus,
-                    trafficSlots: store.traffic.hourSlots(),
-                    trafficTotal: store.traffic.lastHourTotal
+            case .text:
+                Text(item.title)
+            case .button:
+                if item.isOn, item.id.hasPrefix("account.") {
+                    Button {
+                        if let action = item.action { perform(action) }
+                    } label: {
+                        Label(item.title, systemImage: "checkmark")
+                    }
+                    .disabled(!item.enabled)
+                } else {
+                    Button(item.title) {
+                        if let action = item.action { perform(action) }
+                    }
+                    .disabled(!item.enabled)
+                }
+            case .toggle:
+                Toggle(item.title, isOn: Binding(
+                    get: { item.isOn },
+                    set: { _ in if let action = item.action { perform(action) } }
                 ))
-            }
-            Button("Quit RunOS Desktop") { NSApplication.shared.terminate(nil) }
-        }
-        .onAppear {
-            coordinator.setMenuOpen(true)
-            // The person can change this in System Settings, so the toggle is re-read rather than
-            // remembered from launch. See LoginItemController.refresh.
-            loginItem.refresh()
-        }
-        .onDisappear { coordinator.setMenuOpen(false) }
-    }
-
-    @ViewBuilder
-    private var statusMessages: some View {
-        // PLAIN TEXT, no `Label`, and that is the whole reason these read as they do.
-        //
-        // An icon in a menu item widens the leading column for EVERY item in the group, so one
-        // Label here pushed the sign-in line, the Sign In button and the VPN submenu right, past
-        // the checkmark column the rest of the menu aligns to. The menu then looked like two menus.
-        // Nothing was gained for it: a four-item status block does not need iconography to be
-        // read, and the icons were never load-bearing.
-        let renewShown = store.sessionEndingSoon(now: Date())
-            && MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) != nil
-        if let operation = store.operationMessage,
-           MenuPresentation.showsOperationLine(
-               operationMessage: operation, signInButtonShown: store.signInRequired, renewButtonShown: renewShown) {
-            Text(operation)
-        }
-        if let notice = store.noticeMessage {
-            Text(notice)
-        }
-        /*
-         THE SERVICE IS MISSING, which is a thing to install and not a thing to explain.
-
-         Shown ABOVE the sign-in block because it is the more fundamental gap: signing in cannot
-         help a machine with no daemon to carry the tunnel. `runos desktop install` never writes it,
-         so this is the ordinary state of a fresh machine.
-        */
-        if store.vpnServiceMissing {
-            Text("The RunOS VPN service is not installed, so the VPN cannot connect.")
-            Button("Install VPN Service…") {
-                coordinator.installVPNService()
-            }
-        }
-        if store.signInRequired {
-            /*
-             NO LINE ABOVE THE BUTTON when the session has simply ended.
-
-             "You are currently signed out." over a button reading "Sign In" says the same thing
-             twice, and the first time in greyed-out text that cannot be acted on. The button IS
-             the statement: an app offering to sign you in is not one you are signed in to.
-
-             The button now runs `runos login`, which is the only command in this app that
-             establishes an identity. It used to run `vpn up`, which RESOLVES a credential before it
-             does anything else and therefore exited immediately on the one machine that needed this
-             button most: a signed-out one (reported 2026-08-28).
-            */
-            Button(store.operationMessage ?? "Sign In") {
-                coordinator.beginSignIn(purpose: .signIn)
-            }
-            .disabled(store.isBusy)
-        }
-        // Inside the last hour the expiry stops being reference and becomes something to do. It
-        // moves out of the VPN submenu to here, where it cannot be missed, because a sign-in takes
-        // a browser round trip and being told with five minutes left is being told too late.
-        if store.sessionEndingSoon(now: Date()),
-           let expiry = MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) {
-            Text(expiry)
-            renewSessionButton
-        }
-        if let error = store.errorMessage {
-            Text(error)
-        }
-    }
-
-    /*
-     START A FRESH 24 HOURS, whenever the person wants one.
-
-     The session ends 24 hours after it was minted and nothing extends it, so someone with an
-     important afternoon ahead and two hours left can only wait for the end and sign in again. This
-     asks for a new browser check now. It is not a weaker path: conductor mints the new session only
-     after the same recent sign-in the first one needed. The tunnel drops for a moment while the
-     service swaps the session in, and comes straight back.
-    */
-    @ViewBuilder
-    private var renewSessionButton: some View {
-        Button(store.operationMessage ?? "Renew Session") {
-            coordinator.beginSignIn(purpose: .renew)
-        }
-        .disabled(store.isBusy)
-    }
-
-    @ViewBuilder
-    private var vpnMenu: some View {
-        vpnMenuContent
-            // Disabled, not hidden. A person who opens this menu looking for the VPN should find it
-            // where it always is and see that it is unavailable, rather than watch it vanish and
-            // wonder what else the app has lost. The Sign In button above says what to do.
-            .disabled(!store.vpnControlsUsable)
-    }
-
-    @ViewBuilder
-    private var vpnMenuContent: some View {
-        Menu("VPN") {
-            switch store.vpnMenuMode {
-            case .signedOut:
-                // A STATE, not a control. The old contents said "Sign Out" for a session that had
-                // already ended, over a cluster ticked as connected while nothing routed. Both were
-                // claims, and greying them left the claims intact. What is true is this one line;
-                // the Sign In button above is the thing to do about it.
-                Text("Sign in to use the VPN")
-            case .connected:
-                vpnClusters
-                Divider()
-                // When the tunnel ends by itself. Next to the button that ends it deliberately.
-                if let expiry = MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) {
-                    Text(expiry)
+                .disabled(!item.enabled)
+            case .submenu(let children):
+                Menu(item.title) {
+                    MenuItemsView(items: children, perform: perform)
                 }
-                renewSessionButton
-                /*
-                 DISCONNECT, not "Sign Out". This ends the tunnel and leaves the person signed in,
-                 which is what `vpn down` has always actually done; calling it Sign Out was the app
-                 asserting that a VPN session and an identity were the same thing. Sign Out is now a
-                 separate item that ends the identity, and the tunnel with it.
-                */
-                Button("Disconnect") {
-                    coordinator.disconnectVPN()
-                }
-            case .disconnected:
-                /*
-                 Connecting can still need a browser round trip: conductor mints a VPN session only
-                 from a sign-in in the last five minutes. That is a CONFIRMATION, and the window says
-                 so. The person stays signed in throughout and the account cannot change.
-                */
-                Button(store.operationMessage ?? "Connect") {
-                    coordinator.beginSignIn(purpose: .confirm)
-                }
-                // The item itself says what is happening and cannot be clicked again, instead of
-                // relying on the group around it to look different.
-                .disabled(store.isBusy)
+                .disabled(!item.enabled)
             }
         }
     }
-
-    @ViewBuilder
-    private var vpnClusters: some View {
-        if let vpn = store.vpnStatus, !vpn.connectableClusters.isEmpty {
-            ForEach(vpn.connectableClusters) { cluster in
-                let clusterLabel = MenuPresentation.clusterLabel(cluster)
-                Toggle(isOn: Binding(
-                    get: { cluster.connected },
-                    set: { _ in
-                        let command = DesktopCommands.toggleCluster(
-                            cluster.cid,
-                            isConnected: cluster.connected
-                        )
-                        let message = cluster.connected
-                            ? "Disconnecting \(clusterLabel)…"
-                            : "Connecting \(clusterLabel)…"
-                        coordinator.perform(command, message: message)
-                    }
-                )) {
-                    Text(clusterLabel)
-                }
-            }
-        } else {
-            Text("No VPN clusters available")
-        }
-    }
-
-    @ViewBuilder
-    private var actionItems: some View {
-        Group {
-            /*
-             DISABLED, NOT HIDDEN, when there is nothing to install. Same rule as the VPN submenu:
-             a person who opens this menu looking for it should find it where it always is.
-            */
-            Button(store.updateActionTitle) { coordinator.updateRunOS() }
-                .disabled(!store.updateActionEnabled)
-            /*
-             SHOWN ONLY WHILE THERE IS DRIFT, unlike Update RunOS above, which is disabled rather
-             than hidden. The difference is that Update is a thing people come looking for and this
-             is not: a permanent "Restart VPN" would read as something they ought to be doing.
-             Its presence IS the message.
-            */
-            if store.vpnRestartRequired {
-                Button(MenuPresentation.vpnRestartTitle) { coordinator.restartVPNService() }
-                    .disabled(store.isBusy)
-            }
-            Toggle("Launch at Login", isOn: Binding(
-                get: { loginItem.isEnabled },
-                set: { loginItem.setEnabled($0) }
-            ))
-            Toggle(AutoConnect.menuLabel, isOn: Binding(
-                get: { startupConnect.isEnabled },
-                set: { startupConnect.setEnabled($0) }
-            ))
-            if let error = loginItem.errorMessage {
-                Text(error)
-            }
-            /*
-             SIGN OUT LIVES HERE, beside the other things that are about this machine rather than
-             about the tunnel, and it is only offered when there is an identity to end.
-
-             It runs `runos logout`, which clears the credential AND drops the tunnel (FPL26 D3).
-             The old Sign Out was inside the VPN submenu and ran `vpn down`, which ended the session
-             and left the machine signed in.
-            */
-            /*
-             SWITCH ACCOUNT, only when there is another account to switch to.
-
-             The old account submenu was dropped because picking an account changed nothing a person
-             could see. With account sharing that is no longer true: one login belongs to several
-             accounts, the console switches between them, and the CLI switches without a browser.
-             The tunnel still drops on a switch, as the CLI says, and Connect brings the new account
-             up when the person wants it.
-            */
-            if store.canSwitchAccount {
-                Divider()
-                Menu("Switch Account") {
-                    ForEach(store.accounts) { account in
-                        let active = store.isActiveAccount(account)
-                        Button {
-                            coordinator.switchAccount(account)
-                        } label: {
-                            if active {
-                                Label(account.label, systemImage: "checkmark")
-                            } else {
-                                Text(account.label)
-                            }
-                        }
-                        .disabled(active)
-                    }
-                }
-            }
-            if store.signedIn {
-                Divider()
-                Button("Sign Out") { coordinator.signOut() }
-            }
-        }
-    }
-
 }
 
 @MainActor
