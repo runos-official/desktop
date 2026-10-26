@@ -7,6 +7,16 @@ enum MenuPresentation {
     /// carry that as well.
     static let vpnRestartTitle = "Restart VPN"
 
+    /// Whether the greyed status line at the top of the menu should show the running operation.
+    ///
+    /// The Sign In and Renew buttons carry the operation text themselves while one runs ("Finishing
+    /// sign in…" replaces "Sign In"), so printing it again above the button read as two sign-ins,
+    /// or as something stuck (FCR 1726). The line is for an operation no button already says.
+    static func showsOperationLine(operationMessage: String?, signInButtonShown: Bool, renewButtonShown: Bool) -> Bool {
+        guard let operationMessage, !operationMessage.isEmpty else { return false }
+        return !signInButtonShown && !renewButtonShown
+    }
+
     static func clusterLabel(name: String, cid: String) -> String {
         let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return displayName.isEmpty ? cid : "\(displayName) (\(cid))"
@@ -124,7 +134,11 @@ struct MenuContentView: View {
         // the checkmark column the rest of the menu aligns to. The menu then looked like two menus.
         // Nothing was gained for it: a four-item status block does not need iconography to be
         // read, and the icons were never load-bearing.
-        if let operation = store.operationMessage {
+        let renewShown = store.sessionEndingSoon(now: Date())
+            && MenuPresentation.sessionExpiry(store.vpnStatus?.session, now: Date()) != nil
+        if let operation = store.operationMessage,
+           MenuPresentation.showsOperationLine(
+               operationMessage: operation, signInButtonShown: store.signInRequired, renewButtonShown: renewShown) {
             Text(operation)
         }
         if let notice = store.noticeMessage {
