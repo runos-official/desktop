@@ -82,18 +82,28 @@ final class RefreshCoordinator: ObservableObject {
     /// cadence in milliseconds rather than wait half a minute.
     private let pollIntervals: (open: Duration, closed: Duration)
 
+    /// Finds the CLI when none was found at launch. Injected so a test is not at the mercy of
+    /// whatever `runos` sits in the developer's own home directory.
+    private let resolveCLI: () throws -> URL
+    /// The two things that need an administrator password. Injected so a test never raises one.
+    private let privileged: PrivilegedService
+
     init(
         store: StateStore,
         runner: CLIRunner?,
         autoConnect: StartupConnectController = StartupConnectController(),
         readTimeout: Duration = .seconds(30),
-        pollIntervals: (open: Duration, closed: Duration) = (.seconds(5), .seconds(30))
+        pollIntervals: (open: Duration, closed: Duration) = (.seconds(5), .seconds(30)),
+        resolveCLI: @escaping () throws -> URL = { try CLIPathResolver.resolve() },
+        privileged: PrivilegedService = .live
     ) {
         self.store = store
         self.runner = runner
         self.autoConnect = autoConnect
         self.readTimeout = readTimeout
         self.pollIntervals = pollIntervals
+        self.resolveCLI = resolveCLI
+        self.privileged = privileged
         storeObservation = store.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
@@ -124,7 +134,7 @@ final class RefreshCoordinator: ObservableObject {
     /// Re-resolves the CLI path, for the case where it was missing at launch and has since been
     /// installed. Silent on failure: the message from launch is still the right one.
     private func adoptNewlyInstalledCLI() {
-        guard let found = try? CLIRunner(executableURL: CLIPathResolver.resolve()) else { return }
+        guard let found = try? CLIRunner(executableURL: resolveCLI()) else { return }
         runner = found
         update(\.cliAvailable, to: true)
         update(\.errorMessage, to: nil)
@@ -573,7 +583,7 @@ final class RefreshCoordinator: ObservableObject {
             // Held until after the refresh, which writes `errorMessage` itself. See `perform`.
             var failure: String?
             do {
-                _ = try await VPNService.install(cliPath: CLIPathResolver.resolve().path)
+                _ = try await privileged.install(cliPath())
                 store.vpnServiceMissing = false
             } catch {
                 failure = error.localizedDescription
@@ -601,9 +611,9 @@ final class RefreshCoordinator: ObservableObject {
             // Held until after the refresh, which writes `errorMessage` itself. See `perform`.
             var failure: String?
             do {
-                _ = try await VPNService.restart(
-                    cliPath: CLIPathResolver.resolve().path,
-                    prompt: VPNService.restartPromptText(
+                _ = try await privileged.restart(
+                    cliPath(),
+                    VPNService.restartPromptText(
                         tunnelUp: store.vpnStatus?.running == true,
                         sessionValid: store.vpnStatus?.session.present == true
                             && store.vpnStatus?.session.loginRequired != true))
@@ -628,6 +638,13 @@ final class RefreshCoordinator: ObservableObject {
             if let failure { store.errorMessage = failure }
             actionTask = nil
         }
+    }
+
+    /// The CLI this app is already executing, so a service installed or restarted as root runs the
+    /// SAME binary the menu reads from. Resolving it again could pick a different one.
+    private func cliPath() throws -> String {
+        if let runner { return runner.executableURL.path }
+        return try resolveCLI().path
     }
 
     func cancelOperation() {
@@ -765,6 +782,17 @@ final class RefreshCoordinator: ObservableObject {
         guard store[keyPath: keyPath] != value else { return }
         store[keyPath: keyPath] = value
     }
+}
+
+/// The two actions that raise an administrator prompt. `live` is the real prompt; a test supplies
+/// its own so it can answer, cancel or fail without a password dialog.
+struct PrivilegedService: Sendable {
+    var install: @Sendable (_ cliPath: String) async throws -> String
+    var restart: @Sendable (_ cliPath: String, _ prompt: String) async throws -> String
+
+    static let live = PrivilegedService(
+        install: { try await VPNService.install(cliPath: $0) },
+        restart: { try await VPNService.restart(cliPath: $0, prompt: $1) })
 }
 
 enum CLIVersionCompatibility: Equatable {

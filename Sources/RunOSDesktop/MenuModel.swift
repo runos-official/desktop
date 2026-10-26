@@ -140,6 +140,7 @@ enum MenuModel {
     static let serviceMissingText = "The RunOS VPN service is not installed, so the VPN cannot connect."
     static let dnsPendingText = "Connected. Cluster names are still being applied by macOS"
     static let signedOutVPNText = "Sign in to use the VPN"
+    static let restartHintText = "The VPN service is on a different version than RunOS. Use Restart VPN."
     static let readingStatusText = "Reading RunOS status…"
     static let readingVPNText = "Reading VPN status…"
     static let noClustersText = "No VPN clusters available"
@@ -222,6 +223,9 @@ enum MenuModel {
             top.append(.text("status.vpn-problem", failure.headline))
             top.append(line("status.vpn-problem-reason", failure.reason))
         }
+        if store.vpnRestartRequired {
+            top.append(.text("status.restart-hint", restartHintText))
+        }
         if let error = store.errorMessage, !error.isEmpty {
             top.append(line("status.error", error))
         }
@@ -300,10 +304,14 @@ enum MenuModel {
         let update = updateTitle(store)
         items.append(.button("update", update.title, .updateRunOS,
                              enabled: store.updateActionEnabled, reason: update.reason ?? .saysItself))
-        if store.vpnRestartOffered {
-            items.append(.button("restart-vpn", MenuPresentation.vpnRestartTitle, .restartVPN,
-                                 enabled: !busy, reason: .operationRunning))
-        }
+        /*
+         ALWAYS HERE. It used to appear only when the service build differed from the CLI's, so a
+         person whose service looked current but was stuck had nothing to press (FCR 1730). Whether
+         a restart is NEEDED is information, not a condition for offering it: see the hint line in
+         the status block. It asks for the administrator password through VPNService.restart.
+        */
+        items.append(.button("restart-vpn", MenuPresentation.vpnRestartTitle, .restartVPN,
+                             enabled: !busy, reason: .operationRunning))
         items.append(.toggle("launch-at-login", "Launch at Login", isOn: launchAtLogin,
                              .setLaunchAtLogin(!launchAtLogin), enabled: !busy, reason: .operationRunning))
         items.append(.toggle("connect-automatically", AutoConnect.menuLabel, isOn: connectAutomatically,

@@ -218,18 +218,6 @@ final class StateStore: ObservableObject {
     var vpnStatusUnreadable: Bool { vpnStatusProblem != nil }
 
     /*
-     Whether the menu offers Restart VPN.
-
-     On BUILD DRIFT, as before. And on an UNREADABLE STATUS, because with `vpnStatus` nil the drift
-     check has nothing to compare and the item used to vanish exactly when it was needed: the service
-     that answers badly is the one that wants restarting (FCR 1730). Never while the service is
-     missing: there is nothing installed to restart, and the Install item is the remedy.
-    */
-    var vpnRestartOffered: Bool {
-        (vpnRestartRequired || vpnStatusUnreadable) && !vpnServiceMissing
-    }
-
-    /*
      The tunnel is up and the cluster names are not resolvable yet, because macOS is still applying
      them. A calm state for a second or two after the first connect, never an error (FCR 1730).
      Only while connected: "Connected." would be a claim about a tunnel that is not carrying anything.

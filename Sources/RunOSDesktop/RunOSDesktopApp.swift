@@ -14,6 +14,13 @@ struct RunOSDesktopApp: App {
             try? SMAppService.mainApp.unregister()
             exit(EXIT_SUCCESS)
         }
+        /*
+         BEFORE ANYTHING IS CREATED, so a duplicate never draws a second icon. See SingleInstance.
+        */
+        if !SingleInstance.isRunningTests(), let bundleIdentifier = Bundle.main.bundleIdentifier,
+           !SingleInstance.shouldProceed(environment: SingleInstance.liveEnvironment(bundleIdentifier: bundleIdentifier)) {
+            exit(EXIT_SUCCESS)
+        }
         let store = StateStore()
         let runner: CLIRunner?
         do {

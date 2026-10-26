@@ -329,6 +329,8 @@ final class CLIContractFixtureTests: XCTestCase {
             "device-code": { $0 == .deviceCode(id: "ABCD-1234", url: "https://console.example.test/device?code=ABCD-1234") },
             "browser-opened": { $0 == .browserOpened(true) },
             "pending": { $0 == .pending },
+            // The CLI sends notices that Desktop does not draw; ignoring one must not break the flow.
+            "notice": { $0 == nil },
             "authorized": { $0 == .authorized },
             "error": { $0 == .failed(reason: "expired", message: "The code expired. Start again.") },
             // Anything this build cannot use is ignored, never a crash and never a wrong event.
@@ -355,7 +357,7 @@ final class CLIContractFixtureTests: XCTestCase {
     func testCLIErrorFixturesAreClassifiedForThePerson() throws {
         let missing: [String: Bool] = [
             "service-not-installed": true, "daemon-not-answering": false,
-            "permission-denied": false, "long-dns-error": false,
+            "permission-denied-service-running": false, "older-service": false, "long-dns-error": false,
         ]
         XCTAssertEqual(Set(try Fixtures.stems(in: "cli-errors")), Set(missing.keys))
         for (stem, isMissing) in missing.sorted(by: { $0.key < $1.key }) {

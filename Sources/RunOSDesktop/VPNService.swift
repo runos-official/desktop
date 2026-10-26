@@ -22,15 +22,21 @@ enum VPNService {
     /*
      Whether a CLI failure means the service is absent rather than anything the person did.
 
-     Matched on the CLI's own words rather than an exit code, because the CLI exits 1 for every
-     refusal and only the sentence separates them. Both halves are checked: the socket path is the
-     stable part of the message, and the remedy names the command, so a reworded error still lands
-     as long as one survives.
+     MATCHED ON THE ONE SENTENCE THAT MEANS IT (FCR 1732): "the RunOS VPN service is not running
+     (<socket path>). Run 'sudo runos vpn install' first." The socket path and the words "vpn
+     install" were each enough before, and two other CLI errors carry them: the socket permission
+     error ("The service IS running, so this is not an install problem") and the older-service error
+     that offers `vpn install` as a fallback. Both made the menu offer Install for a service that
+     was running. The CLI's wording is pinned in its desktop contract; a different failure of the
+     service shows the CLI's own sentence, and the Restart VPN item is always there.
     */
     static func isMissing(_ error: Error) -> Bool {
         let text = (error as? CLIExecutionError)?.message ?? error.localizedDescription
-        return text.contains(socketPath) || text.localizedCaseInsensitiveContains("vpn install")
+        return text.localizedCaseInsensitiveContains(missingMarker)
     }
+
+    /// The start of the CLI's "service is not installed or not running" sentence.
+    static let missingMarker = "VPN service is not running ("
 
     /*
      Install the service, with the one administrator prompt it needs.

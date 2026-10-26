@@ -1,0 +1,4 @@
+Error: permission denied opening the RunOS VPN control socket (/var/run/runos-vpn.sock): it belongs to wheel.
+The service IS running, so this is not an install problem. The daemon repairs the socket's group when it starts:
+  sudo runos vpn restart
+If that fails, re-run `sudo runos vpn install`.

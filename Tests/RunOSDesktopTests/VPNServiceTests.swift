@@ -19,13 +19,37 @@ final class VPNServiceTests: XCTestCase {
         XCTAssertTrue(VPNService.isMissing(cliError(real)))
     }
 
-    // Either half is enough, so a reworded error still lands as long as one survives.
-    func testRecognisesTheSocketPathAlone() {
-        XCTAssertTrue(VPNService.isMissing(cliError("cannot reach /var/run/runos-vpn.sock")))
+    /*
+     FCR 1732. Only the CLI's "service is not running" sentence means the service is missing.
+
+     The socket path and the words "vpn install" were each enough, but two other CLI errors carry
+     them: the socket permission error ("The service IS running, so this is not an install
+     problem") and the older-service error that offers `vpn install` as a fallback. Both made the
+     menu offer Install VPN Service for a service that was running.
+    */
+    func testTheSocketPathAloneIsNotAMissingService() {
+        XCTAssertFalse(VPNService.isMissing(cliError("cannot reach /var/run/runos-vpn.sock")))
     }
 
-    func testRecognisesTheRemedyAlone() {
-        XCTAssertTrue(VPNService.isMissing(cliError("run sudo runos VPN Install to continue")))
+    func testTheRemedyAloneIsNotAMissingService() {
+        XCTAssertFalse(VPNService.isMissing(cliError("run sudo runos VPN Install to continue")))
+    }
+
+    func testASocketPermissionErrorIsNotAMissingService() {
+        let permission = "permission denied opening the RunOS VPN control socket (/var/run/runos-vpn.sock): it belongs to wheel.\nThe service IS running, so this is not an install problem. The daemon repairs the socket's group when it starts:\n  sudo runos vpn restart\nIf that fails, re-run `sudo runos vpn install`."
+        XCTAssertFalse(VPNService.isMissing(cliError(permission)))
+        XCTAssertFalse(VPNService.isMissing(cliError("Error: " + permission)))
+    }
+
+    func testAnOlderServiceErrorThatOffersInstallIsNotAMissingService() {
+        let older = "Error: the VPN service is older than this CLI and does not know this request. Restart it, or if that fails try `sudo runos vpn install`."
+        XCTAssertFalse(VPNService.isMissing(cliError(older)))
+    }
+
+    func testTheRealSentenceIsRecognisedWithAndWithoutTheErrorPrefixAndOnAnyPath() {
+        XCTAssertTrue(VPNService.isMissing(cliError("the RunOS VPN service is not running (/var/run/runos-vpn.sock). Run 'sudo runos vpn install' first.")))
+        XCTAssertTrue(VPNService.isMissing(cliError("Error: the RunOS VPN service is not running (/some/other/path.sock). Run 'sudo runos vpn install' first.")))
+        XCTAssertTrue(VPNService.isMissing(cliError("Error: The RunOS VPN service is not running (/var/run/runos-vpn.sock). Run 'sudo runos vpn install' first.\n")))
     }
 
     // A sign-in problem must NOT be read as a missing service: the remedies share nothing, and

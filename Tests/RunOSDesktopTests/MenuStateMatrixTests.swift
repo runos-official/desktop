@@ -11,7 +11,7 @@ import XCTest
 
    1. no text appears twice at the top level, or twice inside one submenu   (FCR 1726)
    2. Sign In is shown exactly when a sign-in is required
-   3. Restart VPN is shown on build drift and when the VPN status cannot be read   (FCR 1730)
+   3. Restart VPN is always shown, and enabled whenever no other action runs   (FCR 1730)
    4. while an operation runs, nothing that starts another action is enabled
    5. every disabled item has its reason somewhere in view
    6. a state with no VPN status always says why; the menu is never silently bare   (FCR 1730)
@@ -246,13 +246,18 @@ final class MenuStateMatrixTests: XCTestCase {
         let signInShown = layout.items.contains { $0.action == .signIn }
         if signInShown != store.signInRequired { out.append("Sign In shown=\(signInShown) but signInRequired=\(store.signInRequired)") }
 
-        // 3. Restart VPN on drift, and on an unreadable status; never when the service is missing.
-        let restartShown = layout.items.contains { $0.action == .restartVPN }
-        let driftPresent = scenario.service != .missing && scenario.problem == .none && scenario.drift == .drift
-            && scenario.cli != .missing
-        let unreadable = scenario.service != .missing && scenario.problem == .unreadable && scenario.cli != .missing
-        if (driftPresent || unreadable) && !restartShown { out.append("Restart VPN missing on drift/unreadable") }
-        if !(driftPresent || unreadable) && restartShown { out.append("Restart VPN shown with neither drift nor an unreadable status") }
+        // 3. Restart VPN is ALWAYS in the menu (a service that looks current can still be stuck),
+        //    enabled whenever no other action runs, and disabled only by the running operation.
+        if let restart = layout.items.first(where: { $0.action == .restartVPN }) {
+            if restart.enabled == store.isBusy { out.append("Restart VPN enabled=\(restart.enabled) while busy=\(store.isBusy)") }
+            if !restart.enabled && restart.disabledReason != .operationRunning { out.append("Restart VPN disabled for the wrong reason") }
+            if restart.title != "Restart VPN" { out.append("Restart VPN is titled \(restart.title)") }
+        } else {
+            out.append("Restart VPN is missing")
+        }
+        // The drift hint is extra information: present exactly when the builds differ.
+        let hint = layout.items.contains { $0.id == "status.restart-hint" }
+        if hint != store.vpnRestartRequired { out.append("restart hint shown=\(hint) but drift=\(store.vpnRestartRequired)") }
 
         // 4. nothing that starts an action is enabled while busy.
         if store.isBusy {
