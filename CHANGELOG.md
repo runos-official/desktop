@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.4.7
+
+- **Restart VPN** is always in the menu, also when the VPN is down or the status cannot be read.
+- The menu shows a running operation once. It used to show it as a status line above the button that
+  already said the same thing.
+- When the VPN status cannot be read, the menu says "Cannot read the VPN status" and why, instead of
+  showing a bare menu. A fresh VPN service that reports no clusters no longer blanks the menu.
+- "VPN service not installed" appears only when the service is really missing. It used to appear when the
+  service was running but slow to answer.
+- Only one copy of the app runs at a time, so a second launch no longer adds a second menu bar icon.
+- A connect that macOS is still applying private DNS for is shown as in progress instead of as an error.
+  This needs RunOS CLI 1.23.1. With an older CLI the app works as before.
+
 ## v0.4.6
 
 - A failed sign-in or connect shows the CLI's own reason. It used to show only the pointer to `runos vpn diagnose` that follows it, so approving the browser check as a different account looked like an unexplained failure instead of "you signed in to account X, not Y, so the VPN was disconnected".
