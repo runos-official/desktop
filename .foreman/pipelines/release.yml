@@ -1,0 +1,76 @@
+# the RunOS Desktop release pipeline, run by foreman on the foreman HOST (FCR #188).
+#
+# This repo is PUBLIC and its artefacts are built by GitHub Actions, not here.
+# Foreman's job is therefore narrower than for a cluster deploy: run this repo's
+# own gate chain, then let the repo's release script tag, push, watch the
+# workflow that does the building, and verify what it published.
+#
+# The gate chain is NOT reimplemented here, on purpose. scripts/release.sh is
+# the only release entry point for this repo. It carries an unskippable leak
+# gate that exists because real internal identifiers were published to a public
+# repo and could not be unpublished. A second copy in foreman would be the copy
+# that drifts, and the one that drifts is the one that fails open. So step three
+# calls the script's own --check mode, which runs every gate and stops before
+# any side effect, and step four runs the script itself. The script also holds
+# the dev-first rule: a final version is refused unless the integration branch
+# tip is the commit a release candidate shipped and the record branch is there.
+#
+# Unlike the cluster agent and node agent pipelines, the tag, the workflow
+# watch, the checksum and attestation checks and the record advance stay INSIDE
+# the script. The script verifies both macOS archives and their checksums, and
+# a copy of that here would only drift.
+#
+# What foreman adds over running the script by hand: each step is recorded with
+# its command, exit code, duration and output, and the run appears in the same
+# deploy history as the other deploys.
+#
+# Desktop has no `advertises` on purpose. The CLI installer reads the latest
+# GitHub release, so no version is advertised to conductor and there is no
+# registry. A release candidate is a GitHub prerelease; a final becomes the
+# latest release.
+#
+# gh authenticates from the host keyring, so no credential is injected here. The
+# token never has to exist in foreman's store to begin with.
+
+name: Release RunOS Desktop
+description: Run this repo's full gate chain, then tag and push, watch the GitHub Actions release, verify the archives and attestations, and record the release.
+kind: github_release
+
+steps:
+  - name: Version and target agree
+    description: A dev target takes a release candidate (vX.Y.Z-rc.N). A prod target takes a final version (vX.Y.Z). The script records a release on the shared record branch only, so a target that records elsewhere is refused before anything runs.
+    run: |
+      version="${{ version }}"
+      case "${{ target.env }}" in
+        prod)
+          case "$version" in
+            *-*) echo "prod takes a final version such as v1.0.0, not $version"; exit 1 ;;
+          esac ;;
+        dev)
+          case "$version" in
+            *-rc.*) ;;
+            *) echo "dev takes a release candidate such as v1.0.0-rc.1, not $version"; exit 1 ;;
+          esac ;;
+        *) echo "unknown target env: ${{ target.env }}"; exit 1 ;;
+      esac
+      test "${{ target.deployed_branch }}" = "deployed" || {
+        echo "this target records on ${{ target.deployed_branch }}, but scripts/release.sh advances only the shared record branch"
+        exit 1
+      }
+      echo "$version on a ${{ target.env }} target"
+    timeout: 60
+
+  - name: Check out the integration branch
+    description: scripts/release.sh refuses to run from any branch but the integration branch, and the tree foreman leases may be standing on another.
+    run: git checkout --quiet ${{ target.branch }}
+    timeout: 120
+
+  - name: Gate chain
+    description: "scripts/release.sh --check: preflight (clean tree, branch in sync, tag free, CHANGELOG section, and for a final the release candidate commit rule), the sensitivity scan, the leak and scannability gates, then make verify. Every gate, no side effects, and it cannot be skipped."
+    run: scripts/release.sh "${{ version }}" --check
+    timeout: 3600
+
+  - name: Release
+    description: scripts/release.sh tags the integration branch and pushes both, waits for the GitHub Actions release, checks both archives against checksums.txt and their attestations against this repo's release workflow at this tag, then advances the record branch. main is never touched; the human merges it after their own verification.
+    run: scripts/release.sh "${{ version }}"
+    timeout: 3600
