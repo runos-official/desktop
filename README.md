@@ -18,6 +18,32 @@ Run `make release VERSION=vX.Y.Z-rc.N CHECK=1` to check a release candidate.
 Use the repository release skills for development and production releases.
 The release script keeps `main` under human control.
 
+A release has two stages and one entry point, `scripts/release.sh`. A person runs it
+through `make release`. Foreman runs the same script through
+`.foreman/pipelines/release.yml`, on the `github-release` target for a candidate and
+on the `github-release-prod` target for a final. Both targets integrate on `dev` and
+record on the branch `deployed`, because the script advances only that branch.
+
+1. **Candidate.** `vX.Y.Z-rc.N` is tagged on `dev`. GitHub Actions builds both archives
+   and publishes a prerelease. The script then advances `deployed` to that commit. Install
+   and test it with `runos desktop install --version X.Y.Z-rc.N`.
+2. **Final.** `vX.Y.Z` is tagged on the same commit. The script refuses unless `dev` has
+   not moved since the candidate, `deployed` is at that commit and a `vX.Y.Z-rc.N` tag
+   points at it. The release becomes the latest GitHub release, which is what
+   `runos desktop update` installs. Desktop advertises nothing to Conductor.
+
+Before a candidate, `CHANGELOG.md` on `dev` needs a section headed `## vX.Y.Z`, with the
+leading `v` and a body. A heading alone passes the script but not the release workflow,
+which turns the section into the release notes and fails on an empty one. A candidate and
+its final share the section of the base version. Because `dev` cannot move between the
+candidate and the final, a correction to the notes means a new candidate.
+
+A version given to the script or to Foreman always carries the leading `v`.
+
+`make pipelinecheck` holds the Foreman pipeline file to the schema Foreman validates it
+with and runs its git-only gate steps in throwaway repositories. It needs python3 with
+PyYAML and touches no network, no GitHub and no tag.
+
 ## Working in this repository
 
 Install the tracked git hooks once per clone, right after you clone.

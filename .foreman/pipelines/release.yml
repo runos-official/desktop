@@ -31,6 +31,19 @@
 #
 # gh authenticates from the host keyring, so no credential is injected here. The
 # token never has to exist in foreman's store to begin with.
+#
+# ONE FILE, TWO TARGETS. The dev target (github-release) cuts release candidates,
+# the prod target (github-release-prod) cuts the final from the commit a candidate
+# shipped. Both record on the branch `deployed`, because the script advances only
+# that one, so both targets must carry deployed_branch: deployed (step one refuses
+# anything else). Both integrate on `dev`. The version arrives as the git tag, with
+# the leading v (v0.4.8-rc.1, v0.4.8): the script refuses a version without it.
+#
+# BEFORE A CANDIDATE: CHANGELOG.md on dev needs a `## vX.Y.Z` section for the base
+# version, and the section must not be empty, because the release workflow turns it
+# into the GitHub release notes and fails on an empty one. The section cannot change
+# between the candidate and the final: dev must not advance after the candidate, so
+# a correction means a new candidate.
 
 name: Release RunOS Desktop
 description: Run this repo's full gate chain, then tag and push, watch the GitHub Actions release, verify the archives and attestations, and record the release.
@@ -38,9 +51,13 @@ kind: github_release
 
 steps:
   - name: Version and target agree
-    description: A dev target takes a release candidate (vX.Y.Z-rc.N). A prod target takes a final version (vX.Y.Z). The script records a release on the shared record branch only, so a target that records elsewhere is refused before anything runs.
+    description: "A dev target takes a release candidate (vX.Y.Z-rc.N). A prod target takes a final version (vX.Y.Z). Both need the leading v. The target integrates on dev and records on the branch deployed, which is all the script advances, so any other target is refused before anything runs."
     run: |
       version="${{ version }}"
+      printf '%s' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || {
+        echo "version $version must look like v1.2.3 or v1.2.3-rc.1, with the leading v"
+        exit 1
+      }
       case "${{ target.env }}" in
         prod)
           case "$version" in
@@ -53,16 +70,62 @@ steps:
           esac ;;
         *) echo "unknown target env: ${{ target.env }}"; exit 1 ;;
       esac
+      test "${{ target.branch }}" = "dev" || {
+        echo "this target integrates on ${{ target.branch }}, but scripts/release.sh releases only from dev"
+        exit 1
+      }
       test "${{ target.deployed_branch }}" = "deployed" || {
-        echo "this target records on ${{ target.deployed_branch }}, but scripts/release.sh advances only the shared record branch"
+        echo "this target records on ${{ target.deployed_branch }}, but scripts/release.sh advances only the record branch deployed"
         exit 1
       }
       echo "$version on a ${{ target.env }} target"
     timeout: 60
 
   - name: Check out the integration branch
-    description: scripts/release.sh refuses to run from any branch but the integration branch, and the tree foreman leases may be standing on another.
-    run: git checkout --quiet ${{ target.branch }}
+    description: "scripts/release.sh refuses to run from any branch but dev, and refuses a dev or deployed that is not the tip of its origin branch. The tree foreman leases may be on another branch or behind, so fetch, switch and fast-forward only. A local dev with commits origin lacks stops the run."
+    run: |
+      git fetch --quiet --tags origin ${{ target.branch }}
+      git fetch --quiet origin ${{ target.deployed_branch }}:${{ target.deployed_branch }} 2>/dev/null || git fetch --quiet origin ${{ target.deployed_branch }} 2>/dev/null || true
+      git checkout --quiet ${{ target.branch }}
+      git merge --quiet --ff-only origin/${{ target.branch }} || {
+        echo "local ${{ target.branch }} cannot fast-forward to origin/${{ target.branch }}"
+        exit 1
+      }
+      test "$(git rev-parse HEAD)" = "$(git rev-parse origin/${{ target.branch }})" || {
+        echo "local ${{ target.branch }} has commits origin/${{ target.branch }} does not: push or drop them first"
+        exit 1
+      }
+    timeout: 120
+
+  - name: Final comes from the validated candidate
+    description: "A final (no -rc) must be cut from the exact commit that shipped as a release candidate and is recorded as shipped. If dev moved on since, the final would carry code no candidate validated. The script checks the same rule; this step says it first, in words. A candidate passes through."
+    run: |
+      version="${{ version }}"
+      case "$version" in
+        *-*) echo "$version is a release candidate: nothing to check"; exit 0 ;;
+      esac
+      branch="${{ target.branch }}"
+      record="${{ target.deployed_branch }}"
+      git fetch --quiet --tags origin
+      tip="$(git ls-remote origin "refs/heads/$branch" | cut -f1)"
+      recorded="$(git ls-remote origin "refs/heads/$record" | cut -f1)"
+      test -n "$tip" || { echo "cannot read $branch on origin"; exit 1; }
+      test -n "$recorded" || { echo "$record does not exist on origin: no release candidate has shipped yet. Cut a candidate from $branch and validate it first."; exit 1; }
+      test "$recorded" = "$tip" || {
+        echo "$record on origin is at $recorded, but $branch is at $tip."
+        echo "$version must be cut from the commit a release candidate shipped. Cut a new candidate from $branch, validate it, then promote that."
+        exit 1
+      }
+      found=""
+      for tag in $(git tag --list "${version}-rc.*"); do
+        if [ "$(git rev-parse "$tag^{commit}")" = "$tip" ]; then found="$tag"; fi
+      done
+      test -n "$found" || {
+        echo "no release candidate tag ${version}-rc.N points at $tip, the tip of $branch."
+        echo "Cut a new candidate from $branch, validate it, then promote that."
+        exit 1
+      }
+      echo "$version will be cut from $tip, the commit $found shipped and $record records"
     timeout: 120
 
   - name: Gate chain

@@ -4,7 +4,7 @@ SCHEME := RunOSDesktop
 CONFIGURATION ?= Debug
 BUILD_ROOT := $(CURDIR)/build
 
-.PHONY: build test run install verify release clean hooks leakcheck leakcheck-staged leakcheck-update leakcheck-test unscannable help
+.PHONY: build test run install verify release clean hooks leakcheck leakcheck-staged leakcheck-update leakcheck-test unscannable pipelinecheck help
 
 build:
 	@DEVELOPER_DIR=$(DEVELOPER_DIR) xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIGURATION) -derivedDataPath $(BUILD_ROOT)/DerivedData build
@@ -65,6 +65,13 @@ leakcheck-test:
 unscannable:
 	@python3 scripts/unscannable_check.py
 
+# Hold the Foreman release pipeline (.foreman/pipelines/release.yml) to the schema Foreman
+# validates it with, then run its git-only gate steps in throwaway repositories. Needs
+# python3 with PyYAML. Touches no network, no GitHub and no tag.
+pipelinecheck:
+	@python3 scripts/pipeline_check.py
+	@python3 scripts/pipeline_check_test.py
+
 help:
 	@echo "RunOS Desktop"
 	@echo ""
@@ -74,6 +81,7 @@ help:
 	@echo "  make install          Build and install into ~/Applications"
 	@echo "  make verify           Clean, build, test and check the signature"
 	@echo "  make clean            Remove build artifacts"
+	@echo "  make pipelinecheck    Check the Foreman release pipeline file and its gate steps"
 	@echo ""
 	@echo "  make hooks            Install the tracked git hooks (run once per clone)"
 	@echo "  make leakcheck        Scan every tracked file for leaks (PUBLIC repo gate)"
