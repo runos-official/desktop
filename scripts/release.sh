@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 
 # This script is the only release entry point for RunOS Desktop.
+#
+# The record. After the release is verified, scripts/record-release.sh moves the
+# branches that say what shipped, by fast-forward only. `deployed` holds the last
+# commit that was tagged, a candidate or a final. A candidate moves `deployed`. A
+# FINAL moves `deployed` and then `main`, the prod record, to the commit its tag
+# names. A final is also refused in the preflight, before any tag, when `main` is
+# not an ancestor of `dev`.
 set -euo pipefail
 
 INTEGRATION_BRANCH="dev"
 DEPLOYED_BRANCH="deployed"
+PROD_BRANCH="main"
 EXPECTED_REPO="runos-official/desktop"
 RELEASE_WORKFLOW="release.yml"
 POLL_SECONDS=10
@@ -59,20 +67,14 @@ fi
 CHANGELOG_VERSION="${VERSION%%-*}"
 grep -qE "^## ${CHANGELOG_VERSION//./\\.}([[:space:]]|$)" CHANGELOG.md || fail "CHANGELOG.md has no $CHANGELOG_VERSION section"
 
+# The remote is the authority for the record. A local copy of `deployed` can be stale on a
+# host that has released before, and nothing here reads or moves it.
 DEPLOYED_EXISTS="false"
 DEPLOYED_REF=""
-git fetch --quiet origin "$DEPLOYED_BRANCH" >/dev/null 2>&1 || true
-if git show-ref --verify --quiet "refs/heads/$DEPLOYED_BRANCH"; then
-  DEPLOYED_EXISTS="true"
-  DEPLOYED_REF="$DEPLOYED_BRANCH"
-  if git show-ref --verify --quiet "refs/remotes/origin/$DEPLOYED_BRANCH"; then
-    [[ "$(git rev-parse "$DEPLOYED_BRANCH")" == "$(git rev-parse "origin/$DEPLOYED_BRANCH")" ]] || fail "deployed does not match origin/deployed"
-  fi
-elif git show-ref --verify --quiet "refs/remotes/origin/$DEPLOYED_BRANCH"; then
+git fetch --quiet origin "+refs/heads/$DEPLOYED_BRANCH:refs/remotes/origin/$DEPLOYED_BRANCH" >/dev/null 2>&1 || true
+if git show-ref --verify --quiet "refs/remotes/origin/$DEPLOYED_BRANCH"; then
   DEPLOYED_EXISTS="true"
   DEPLOYED_REF="origin/$DEPLOYED_BRANCH"
-fi
-if [[ "$DEPLOYED_EXISTS" == "true" ]]; then
   git merge-base --is-ancestor "$DEPLOYED_REF" "$INTEGRATION_BRANCH" || fail "deployed cannot advance to dev"
 fi
 
@@ -85,6 +87,10 @@ else
 fi
 
 if [[ "$VERSION" != *-* ]]; then
+  # A final fast-forwards main, so main must already be an ancestor of dev. Refusing here, before
+  # the tag, leaves no tag and no release behind when main has diverged.
+  git fetch --quiet origin "+refs/heads/$PROD_BRANCH:refs/remotes/origin/$PROD_BRANCH" || fail "cannot fetch $PROD_BRANCH from origin; a final fast-forwards it"
+  git merge-base --is-ancestor "origin/$PROD_BRANCH" "$INTEGRATION_BRANCH" || fail "origin/$PROD_BRANCH is not an ancestor of $INTEGRATION_BRANCH, so $VERSION could not fast-forward it: merge $PROD_BRANCH into $INTEGRATION_BRANCH first"
   [[ "$DEPLOYED_EXISTS" == "true" ]] || fail "production requires a deployed release candidate"
   [[ "$(git rev-parse "$DEPLOYED_REF")" == "$(git rev-parse "$INTEGRATION_BRANCH")" ]] || fail "dev advanced after the release candidate"
   CANDIDATE_TAG=""
@@ -200,11 +206,16 @@ for asset in runos-desktop-macos-arm64.zip runos-desktop-macos-amd64.zip; do
   [[ "$ACTUAL_SAN" == "$EXPECTED_SAN" ]] || fail "unexpected attestation signer for $asset"
 done
 
-step "Advance the deployed branch"
-git branch -f "$DEPLOYED_BRANCH" "$RELEASE_COMMIT"
-git push origin "$DEPLOYED_BRANCH"
+if [[ "$VERSION" == *-* ]]; then
+  RELEASE_ENV="dev";  RECORD_BRANCH="$DEPLOYED_BRANCH"
+else
+  RELEASE_ENV="prod"; RECORD_BRANCH="$PROD_BRANCH"
+fi
+step "Record the release ($RELEASE_ENV record: $RECORD_BRANCH)"
+"$REPO_ROOT/scripts/record-release.sh" advance "$VERSION" "$RELEASE_ENV" "$INTEGRATION_BRANCH" "$RECORD_BRANCH" ||
+  fail "the release is published but the record did not move; fix the branch named above and run: scripts/record-release.sh advance $VERSION $RELEASE_ENV $INTEGRATION_BRANCH $RECORD_BRANCH"
 
 RELEASE_URL="$(gh release view "$VERSION" --repo "$NWO" --json url -q .url)"
 printf 'Released %s from %s.\n' "$VERSION" "$RELEASE_COMMIT"
 printf 'Release: %s\n' "$RELEASE_URL"
-printf 'The main branch remains under human control.\n'
+printf 'Recorded on %s.\n' "$RECORD_BRANCH"

@@ -16,21 +16,28 @@ Run `make verify` to build and test the application.
 
 Run `make release VERSION=vX.Y.Z-rc.N CHECK=1` to check a release candidate.
 Use the repository release skills for development and production releases.
-The release script keeps `main` under human control.
+The release script moves `main` only for a final, to the commit the final's tag names.
 
 A release has two stages and one entry point, `scripts/release.sh`. A person runs it
 through `make release`. Foreman runs the same script through
 `.foreman/pipelines/release.yml`, on the `github-release` target for a candidate and
-on the `github-release-prod` target for a final. Both targets integrate on `dev` and
-record on the branch `deployed`, because the script advances only that branch.
+on the `github-release-prod` target for a final. Both targets integrate on `dev`. The
+dev target records on `deployed` and the prod target records on `main`.
+
+Two branches record what shipped. `deployed` holds the last commit that was tagged, a
+candidate or a final. `main` is the prod record: it always equals the last final. Both
+move by fast-forward only, after the release is verified; nothing is forced.
+`scripts/record-release.sh` holds the rule.
 
 1. **Candidate.** `vX.Y.Z-rc.N` is tagged on `dev`. GitHub Actions builds both archives
-   and publishes a prerelease. The script then advances `deployed` to that commit. Install
+   and publishes a prerelease. The script then fast-forwards `deployed` to that commit and leaves `main` alone. Install
    and test it with `runos desktop install --version X.Y.Z-rc.N`.
 2. **Final.** `vX.Y.Z` is tagged on the same commit. The script refuses unless `dev` has
    not moved since the candidate, `deployed` is at that commit and a `vX.Y.Z-rc.N` tag
    points at it. The release becomes the latest GitHub release, which is what
-   `runos desktop update` installs. Desktop advertises nothing to Conductor.
+   `runos desktop update` installs. Desktop advertises nothing to Conductor. The script
+   then fast-forwards `deployed` and `main` to that commit, and refuses before the tag
+   when `main` is not an ancestor of `dev`.
 
 Before a candidate, `CHANGELOG.md` on `dev` needs a section headed `## vX.Y.Z`, with the
 leading `v` and a body. A heading alone passes the script but not the release workflow,
@@ -41,7 +48,8 @@ candidate and the final, a correction to the notes means a new candidate.
 A version given to the script or to Foreman always carries the leading `v`.
 
 `make pipelinecheck` holds the Foreman pipeline file to the schema Foreman validates it
-with and runs its git-only gate steps in throwaway repositories. It needs python3 with
+with, runs its git-only gate steps in throwaway repositories and runs the record script's
+own test (`scripts/record-release-test.sh`) against a local bare repository. It needs python3 with
 PyYAML and touches no network, no GitHub and no tag.
 
 ## Working in this repository

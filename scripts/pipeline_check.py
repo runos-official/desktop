@@ -23,7 +23,9 @@ PIPELINE_DIR = Path(__file__).resolve().parents[1] / ".foreman" / "pipelines"
 # pipelineFile keys, strict: an unknown key is a failure.
 FILE_KEYS = {"name", "description", "kind", "operation", "install", "requires_files", "advertises", "steps"}
 # pipelineStep keys, strict.
-STEP_KEYS = {"name", "description", "run", "needs", "timeout", "workdir", "slow"}
+STEP_KEYS = {"name", "description", "run", "needs", "timeout", "workdir", "slow", "expect", "observe", "always", "required"}
+# A fact key named in `expect`: lowercase start, then letters, digits, dot, dash, underscore, 40 characters at most.
+FACT_KEY = re.compile(r"^[a-z][A-Za-z0-9_.-]{0,39}$")
 KINDS = {"runos_cluster", "github_release"}
 OPERATIONS = {"deploy", "cohort", "rollback"}
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -31,9 +33,16 @@ PLACEHOLDER = re.compile(r"\$\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 BARE = {"version", "repo", "ref", "branch", "fast", "rollback_to"}
 # The target config keys these pipelines are allowed to read. The target row must define each.
 TARGET_KEYS = {"env", "branch", "deployed_branch"}
-# The shared record branches. A command that names one literally defeats the objective-scoped
-# rewrite of ${{ target.deployed_branch }}, which Foreman refuses.
-RECORD_BRANCHES = ("deployed/dev", "deployed/prod")
+# The record branches. A step command that names one literally defeats the objective-scoped
+# rewrite of ${{ target.deployed_branch }}, which Foreman refuses. `main` is the prod record: a
+# pipeline step reaches it only through ${{ target.deployed_branch }}, and the literal lives in
+# scripts/record-release.sh, which moves it for a final on a prod target and for nothing else.
+RECORD_BRANCHES = ("deployed/dev", "main")
+# A branch that no longer records anything. It is spelled in two halves so that this file does not
+# trip its own scan. It may not appear in any pipeline, any script or any test.
+RETIRED_BRANCHES = ("deployed/" + "prod",)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+RECORD_ARGS = '"${{ version }}" "${{ target.env }}" "${{ target.branch }}" "${{ target.deployed_branch }}"'
 
 # Per file: the exact step names in order and the credential slugs each step may name. A file not
 # listed here fails, so a new pipeline must be added to this table on purpose.
@@ -51,14 +60,17 @@ EXPECT = {
             ("Gate chain", []),
             ("Release", []),
         ],
-        "timeouts": {"Gate chain": 3600, "Release": 3600},
+        "timeouts": {"Final comes from the validated candidate": 120, "Gate chain": 3600, "Release": 3600},
         "slugs": set(),
         "forbid_slug_fragment": None,
         "script": "scripts/release.sh",
         "runs": {
+            "Final comes from the validated candidate": "scripts/record-release.sh check " + RECORD_ARGS,
             "Gate chain": 'scripts/release.sh "${{ version }}" --check',
             "Release": 'scripts/release.sh "${{ version }}"',
         },
+        # The facts the Release step must expect: a final on a prod target prints them.
+        "release_facts": {"main_before", "main_after", "main_equals_final"},
     },
 }
 
@@ -96,6 +108,16 @@ def check_step(where: str, step: object, errors: list[str]) -> None:
         errors.append(f"{where}: workdir must be a string of at most 200 characters")
     if "slow" in step and not isinstance(step["slow"], bool):
         errors.append(f"{where}: slow must be a boolean")
+    facts = step.get("expect", [])
+    if not isinstance(facts, list) or len(facts) > 40:
+        errors.append(f"{where}: expect must be a list of at most 40 fact keys")
+    else:
+        for key in facts:
+            if not isinstance(key, str) or not FACT_KEY.match(key):
+                errors.append(f"{where}: expect key {key!r} must start with a lowercase letter and use letters, digits, dot, dash, underscore (40 at most)")
+    observe = step.get("observe", "")
+    if not isinstance(observe, str) or len(observe.strip()) > 500:
+        errors.append(f"{where}: observe must be a string of at most 500 characters")
     if isinstance(run, str):
         for expr in PLACEHOLDER.findall(run):
             if "." in expr:
@@ -194,11 +216,38 @@ def check_file(path: Path) -> list[str]:
         for step in steps:
             if isinstance(step, dict) and step.get("name") == name and step.get("run", "").strip() != want_run:
                 errors.append(f"{label}: step {name!r} must run exactly {want_run}")
+    release_facts = expect.get("release_facts")
+    if release_facts:
+        release = next((s for s in steps if isinstance(s, dict) and s.get("name") == "Release"), {})
+        missing_facts = release_facts - set(release.get("expect") or [])
+        if missing_facts:
+            errors.append(f"{label}: the Release step must expect the facts {sorted(missing_facts)}")
+        printed = (REPO_ROOT / "scripts" / "record-release.sh").read_text() if (REPO_ROOT / "scripts" / "record-release.sh").is_file() else ""
+        for fact in release_facts:
+            if f"fm_fact {fact}" not in printed:
+                errors.append(f"{label}: scripts/record-release.sh does not print the fact {fact!r}")
     promote_env = expect.get("promote_env")
     if promote_env:
         for step in steps:
             if isinstance(step, dict) and step.get("name") == "Promote" and promote_env not in step.get("run", ""):
                 errors.append(f"{label}: the Promote step must set {promote_env}")
+    return errors
+
+
+def check_retired() -> list[str]:
+    """No pipeline, script or test names a retired record branch, comments and prose included."""
+    errors: list[str] = []
+    for root in (PIPELINE_DIR, REPO_ROOT / "scripts"):
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.resolve() == Path(__file__).resolve():
+                continue
+            try:
+                text = path.read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+            for branch in RETIRED_BRANCHES:
+                if branch in text:
+                    errors.append(f"{path.relative_to(REPO_ROOT)}: names the retired record branch {branch}; main is the prod record")
     return errors
 
 
@@ -216,6 +265,9 @@ def main() -> int:
                 print(f"FAIL {message}")
         else:
             print(f"ok   {path.name}")
+    for message in check_retired():
+        failures += 1
+        print(f"FAIL {message}")
     missing = set(EXPECT) - {p.name for p in files}
     for name in sorted(missing):
         failures += 1
