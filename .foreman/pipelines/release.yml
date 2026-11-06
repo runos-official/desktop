@@ -108,6 +108,7 @@ steps:
     description: "scripts/release.sh --check: preflight (clean tree, branch in sync, tag free, CHANGELOG section, and for a final the release candidate commit rule), the sensitivity scan, the leak and scannability gates, then make verify. Every gate, no side effects, and it cannot be skipped."
     run: scripts/release.sh "${{ version }}" --check
     timeout: 3600
+    slow: true
 
   - name: Release
     description: "scripts/release.sh tags the integration branch and pushes both, waits for the GitHub Actions release, checks both archives against checksums.txt and their attestations against this repo's release workflow at this tag, then records the release through scripts/record-release.sh: a candidate fast-forwards deployed, a final fast-forwards deployed and main. Nothing is forced."
