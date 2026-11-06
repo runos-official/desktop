@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.8
+
+No change to the app. This release moves the release process into Foreman, so the prod record (main) matches dev.
+
+- Releases run through a Foreman pipeline: a candidate on dev, then a final cut from the same commit, which fast-forwards main.
+- A pre-push hook stops a push that adds an internal identifier or a credential.
+
 ## v0.4.7
 
 - **Restart VPN** is always in the menu, also when the VPN is down or the status cannot be read.
